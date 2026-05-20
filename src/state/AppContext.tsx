@@ -4,6 +4,7 @@ import { catalogReducer, type CatalogAction } from './catalogReducer';
 import { eventsReducer, type EventsAction } from './eventsReducer';
 import { cartReducer, type CartAction } from './cartReducer';
 import { loadJSON, saveJSON, KEYS } from './persistence';
+import { DEFAULT_CATALOG } from './defaultCatalog';
 
 type AppState = {
   catalog: Item[];
@@ -26,7 +27,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [catalog, dispatchCatalog] = useReducer(
     catalogReducer,
     undefined,
-    () => loadJSON<Item[]>(KEYS.catalog, [])
+    () => {
+      const stored = localStorage.getItem(KEYS.catalog);
+      if (stored === null) return DEFAULT_CATALOG;
+      return loadJSON<Item[]>(KEYS.catalog, DEFAULT_CATALOG);
+    }
   );
   const [events, dispatchEvents] = useReducer(
     eventsReducer,
