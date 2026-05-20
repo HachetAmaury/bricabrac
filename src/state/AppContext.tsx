@@ -6,6 +6,8 @@ import { cartReducer, type CartAction } from './cartReducer';
 import { loadJSON, saveJSON, KEYS } from './persistence';
 import { DEFAULT_CATALOG } from './defaultCatalog';
 
+const DEMO_EVENT_ID = 'demo-event';
+
 type AppState = {
   catalog: Item[];
   events: SaleEvent[];
@@ -39,12 +41,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [events, dispatchEvents] = useReducer(
     eventsReducer,
     undefined,
-    () => loadJSON<SaleEvent[]>(KEYS.events, [])
+    () => {
+      const existing = loadJSON<SaleEvent[]>(KEYS.events, []);
+      if (existing.some((e) => e.id === DEMO_EVENT_ID)) return existing;
+      const demo: SaleEvent = {
+        id: DEMO_EVENT_ID,
+        name: 'Démo',
+        kind: 'autre',
+        createdAt: Date.now(),
+        enabledItemIds: DEFAULT_CATALOG.map((i) => i.id),
+        sales: []
+      };
+      return [...existing, demo];
+    }
   );
   const [activeEventId, _setActiveEventId] = useReducer(
     (_: string | null, next: string | null) => next,
     undefined,
-    () => loadJSON<string | null>(KEYS.activeEventId, null)
+    () => {
+      const stored = loadJSON<string | null>(KEYS.activeEventId, null);
+      return stored ?? DEMO_EVENT_ID;
+    }
   );
   const [cart, dispatchCart] = useReducer(cartReducer, []);
 
