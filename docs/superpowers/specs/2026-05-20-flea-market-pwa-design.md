@@ -177,6 +177,29 @@ src/
 docs/superpowers/specs/2026-05-20-flea-market-pwa-design.md
 ```
 
+## Deployment — GitHub Pages
+
+Hosted as a GitHub Pages project site at `https://hachetamaury.github.io/bricabrac/`.
+
+**Vite config:**
+- `base: '/bricabrac/'` so all built asset URLs include the subpath.
+
+**PWA config (`vite-plugin-pwa`):**
+- `scope: '/bricabrac/'` and `start_url: '/bricabrac/'` in the manifest so the service worker controls only the app subpath and install opens the correct route.
+- Icons referenced with relative paths so they resolve under the subpath.
+
+**CI/CD (GitHub Actions):**
+- Workflow at `.github/workflows/deploy.yml`.
+- Trigger: push to `main`.
+- Steps: checkout → setup Node → `npm ci` → `npm run build` → upload `dist/` as a Pages artifact → `actions/deploy-pages@v4`.
+- Permissions: `pages: write`, `id-token: write`.
+- One job, one environment: `github-pages`.
+
+**Repo setup (manual, one-time):**
+- Settings → Pages → Source: **GitHub Actions**.
+
+**SPA routing:** the app is a single route — no client-side router needed initially, so the standard Pages 404 redirect trick is not required.
+
 ## Open Items
 
 - The exact item list (names + prices in cents) will be provided by the user before implementation begins. Until then, `public/items.json` will contain a short placeholder seed used only for development.
