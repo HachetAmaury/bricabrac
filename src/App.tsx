@@ -1,3 +1,28 @@
+import { useState } from 'react';
+import { AppProvider } from './state/AppContext';
+import { TabBar, type TabId } from './components/TabBar';
+
+function Placeholder({ label }: { label: string }) {
+  return <div style={{ padding: 16 }}>{label}</div>;
+}
+
+function Shell() {
+  const [tab, setTab] = useState<TabId>('events');
+  return (
+    <div style={{ minHeight: '100%', paddingBottom: 'calc(var(--tab-height) + 16px)' }}>
+      {tab === 'events' && <Placeholder label="Events" />}
+      {tab === 'sell' && <Placeholder label="Sell" />}
+      {tab === 'report' && <Placeholder label="Report" />}
+      {tab === 'catalog' && <Placeholder label="Catalog" />}
+      <TabBar active={tab} onSelect={setTab} />
+    </div>
+  );
+}
+
 export default function App() {
-  return <div style={{ padding: 16 }}>Bric-à-brac — scaffold ready</div>;
+  return (
+    <AppProvider>
+      <Shell />
+    </AppProvider>
+  );
 }
