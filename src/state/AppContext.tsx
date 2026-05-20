@@ -30,7 +30,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     () => {
       const stored = localStorage.getItem(KEYS.catalog);
       if (stored === null) return DEFAULT_CATALOG;
-      return loadJSON<Item[]>(KEYS.catalog, DEFAULT_CATALOG);
+      const existing = loadJSON<Item[]>(KEYS.catalog, []);
+      const existingIds = new Set(existing.map((i) => i.id));
+      const missing = DEFAULT_CATALOG.filter((i) => !existingIds.has(i.id));
+      return missing.length === 0 ? existing : [...existing, ...missing];
     }
   );
   const [events, dispatchEvents] = useReducer(
