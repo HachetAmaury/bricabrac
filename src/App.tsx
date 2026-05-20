@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppProvider } from './state/AppContext';
 import { TabBar, type TabId } from './components/TabBar';
+import { CatalogView } from './views/CatalogView';
 
 function Placeholder({ label }: { label: string }) {
   return <div style={{ padding: 16 }}>{label}</div>;
@@ -13,7 +14,7 @@ function Shell() {
       {tab === 'events' && <Placeholder label="Events" />}
       {tab === 'sell' && <Placeholder label="Sell" />}
       {tab === 'report' && <Placeholder label="Report" />}
-      {tab === 'catalog' && <Placeholder label="Catalog" />}
+      {tab === 'catalog' && <CatalogView />}
       <TabBar active={tab} onSelect={setTab} />
     </div>
   );
