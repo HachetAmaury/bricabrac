@@ -83,6 +83,7 @@ export function EventsView() {
       </ul>
 
       <CreateModal
+        key={creating ? 'create-open' : 'create-closed'}
         open={creating}
         onClose={() => setCreating(false)}
         copyFrom={activeEvent}
@@ -97,6 +98,7 @@ export function EventsView() {
         }}
       />
       <RenameModal
+        key={renaming?.id ?? 'rename-closed'}
         target={renaming}
         onClose={() => setRenaming(null)}
         onRename={(name) => {
