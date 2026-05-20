@@ -1,0 +1,16 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #111827;
+  background: #f9fafb;
+}
+button { font: inherit; cursor: pointer; }
+input { font: inherit; }
+:root {
+  --color-accent: #2563eb;
+  --color-danger: #dc2626;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --tab-height: 64px;
+}
