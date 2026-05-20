@@ -1,7 +1,7 @@
 export type Item = {
   id: string;
   name: string;
-  price: number;     // cents
+  price: number;
   archived: boolean;
 };
 
@@ -12,7 +12,7 @@ export type CartLine = { itemId: string; qty: number };
 export type SaleLine = {
   itemId: string;
   name: string;
-  price: number;   // cents, snapshotted at sale time
+  price: number;
   qty: number;
 };
 
@@ -20,9 +20,9 @@ export type Sale = {
   id: string;
   timestamp: number;
   lines: SaleLine[];
-  total: number;        // cents, frozen at sale time
-  cashGiven?: number;   // cents, optional
-  change?: number;      // cents, optional
+  total: number;
+  cashGiven?: number;
+  change?: number;
 };
 
 export type SaleEvent = {
