@@ -5,6 +5,7 @@ import { CatalogView } from './views/CatalogView';
 import { EventsView } from './views/EventsView';
 import { ReportView } from './views/ReportView';
 import { SellView } from './views/SellView';
+import { CashView } from './views/CashView';
 
 function Shell() {
   const [tab, setTab] = useState<TabId>('events');
@@ -13,6 +14,7 @@ function Shell() {
       {tab === 'events' && <EventsView />}
       {tab === 'sell' && <SellView />}
       {tab === 'report' && <ReportView />}
+      {tab === 'cash' && <CashView />}
       {tab === 'catalog' && <CatalogView />}
       <TabBar active={tab} onSelect={setTab} />
     </div>

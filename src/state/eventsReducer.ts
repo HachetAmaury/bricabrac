@@ -1,6 +1,6 @@
 import { uuid } from '../lib/uuid';
 import { sumLines } from '../lib/money';
-import type { SaleEvent, EventKind, CartLine, Item, SaleLine, Sale } from '../types';
+import type { SaleEvent, EventKind, CartLine, Item, SaleLine, Sale, CashCount } from '../types';
 
 export type EventsAction =
   | { type: 'create'; name: string; kind: EventKind; enabledItemIds: string[] }
@@ -16,6 +16,9 @@ export type EventsAction =
       now: number;
     }
   | { type: 'undoLast'; eventId: string }
+  | { type: 'setLocked'; id: string; locked: boolean }
+  | { type: 'setCashFloat'; id: string; cashFloat: number }
+  | { type: 'setCashCount'; id: string; cashCount: CashCount }
   | { type: 'hydrate'; events: SaleEvent[] };
 
 function mapEvent(state: SaleEvent[], id: string, fn: (e: SaleEvent) => SaleEvent): SaleEvent[] {
@@ -56,6 +59,7 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
       });
     case 'recordSale':
       return mapEvent(state, action.eventId, (e) => {
+        if (e.locked) return e; // no sales on a locked event
         const lines: SaleLine[] = action.cart
           .map((cl) => {
             const item = action.catalog.find((i) => i.id === cl.itemId);
@@ -82,6 +86,12 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
       next[idx] = { ...next[idx], sales: next[idx].sales.slice(0, -1) };
       return next;
     }
+    case 'setLocked':
+      return mapEvent(state, action.id, (e) => ({ ...e, locked: action.locked }));
+    case 'setCashFloat':
+      return mapEvent(state, action.id, (e) => ({ ...e, cashFloat: action.cashFloat }));
+    case 'setCashCount':
+      return mapEvent(state, action.id, (e) => ({ ...e, cashCount: action.cashCount }));
     case 'hydrate':
       return action.events;
   }

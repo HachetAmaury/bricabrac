@@ -1,9 +1,10 @@
-export type TabId = 'events' | 'sell' | 'report' | 'catalog';
+export type TabId = 'events' | 'sell' | 'report' | 'cash' | 'catalog';
 
 const tabs: { id: TabId; label: string }[] = [
   { id: 'events', label: 'Événements' },
   { id: 'sell', label: 'Vente' },
   { id: 'report', label: 'Rapport' },
+  { id: 'cash', label: 'Caisse' },
   { id: 'catalog', label: 'Catalogue' }
 ];
 
@@ -36,6 +37,7 @@ export function TabBar({
           style={{
             background: 'transparent',
             border: 'none',
+            fontSize: 13,
             color: active === t.id ? 'var(--color-accent)' : 'var(--color-muted)',
             fontWeight: active === t.id ? 600 : 400
           }}
