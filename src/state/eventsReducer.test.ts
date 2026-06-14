@@ -125,4 +125,44 @@ describe('eventsReducer', () => {
     });
     expect(next).toHaveLength(1);
   });
+
+  it('locks and unlocks an event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [] }
+    ];
+    const locked = eventsReducer(seeded, { type: 'setLocked', id: 'e1', locked: true });
+    expect(locked[0].locked).toBe(true);
+    const unlocked = eventsReducer(locked, { type: 'setLocked', id: 'e1', locked: false });
+    expect(unlocked[0].locked).toBe(false);
+  });
+
+  it('does not record a sale on a locked event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: ['a'], sales: [], locked: true }
+    ];
+    const next = eventsReducer(seeded, {
+      type: 'recordSale',
+      eventId: 'e1',
+      cart: [{ itemId: 'a', qty: 1 }],
+      catalog: [item('a', 100)],
+      now: 1
+    });
+    expect(next[0].sales).toHaveLength(0);
+  });
+
+  it('sets the cash float (fond de caisse)', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [] }
+    ];
+    const next = eventsReducer(seeded, { type: 'setCashFloat', id: 'e1', cashFloat: 25000 });
+    expect(next[0].cashFloat).toBe(25000);
+  });
+
+  it('sets the cash count', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [] }
+    ];
+    const next = eventsReducer(seeded, { type: 'setCashCount', id: 'e1', cashCount: { '5000': 2 } });
+    expect(next[0].cashCount).toEqual({ '5000': 2 });
+  });
 });

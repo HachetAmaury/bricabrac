@@ -11,7 +11,7 @@ const KIND_LABELS: Record<EventKind, string> = {
 };
 
 export function EventsView() {
-  const { events, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
+  const { events, activeEventId, setActiveEvent, dispatchEvents, activeEvent, user, setUser } = useApp();
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SaleEvent | null>(null);
 
@@ -32,6 +32,8 @@ export function EventsView() {
           + Nouvel événement
         </button>
       </header>
+
+      <UserBar user={user} setUser={setUser} />
 
       {events.length === 0 && (
         <p style={{ color: 'var(--color-muted)', marginTop: 24 }}>
@@ -61,10 +63,19 @@ export function EventsView() {
                 onClick={() => setActiveEvent(e.id)}
                 style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none' }}
               >
-                <div style={{ fontWeight: 600 }}>{e.name}</div>
+                <div style={{ fontWeight: 600 }}>
+                  {e.locked && <span title="Verrouillé">🔒 </span>}
+                  {e.name}
+                </div>
                 <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>
                   {KIND_LABELS[e.kind]} · {e.sales.length} vente(s) · {formatCents(total)}
                 </div>
+              </button>
+              <button
+                onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, locked: !e.locked })}
+                title={e.locked ? 'Déverrouiller' : 'Verrouiller (bloque les ventes)'}
+              >
+                {e.locked ? 'Déverrouiller' : 'Verrouiller'}
               </button>
               <button onClick={() => setRenaming(e)}>Renommer</button>
               <button
@@ -106,6 +117,58 @@ export function EventsView() {
           setRenaming(null);
         }}
       />
+    </div>
+  );
+}
+
+function UserBar({ user, setUser }: { user: string; setUser: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(user);
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        borderRadius: 8,
+        background: '#fff',
+        border: '1px solid var(--color-border)'
+      }}
+    >
+      {editing ? (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Nom d'utilisateur / appareil"
+            style={{ flex: 1, padding: 8 }}
+          />
+          <button
+            onClick={() => {
+              setUser(draft.trim());
+              setEditing(false);
+            }}
+            style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 12px' }}
+          >
+            OK
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>Session</div>
+            <div style={{ fontWeight: 600 }}>{user ? `👤 ${user}` : 'Aucun utilisateur'}</div>
+          </div>
+          <button onClick={() => { setDraft(user); setEditing(true); }}>
+            {user ? 'Changer' : 'Se connecter'}
+          </button>
+        </div>
+      )}
+      <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--color-muted)' }}>
+        Les sessions ouvertes sur cet appareil (onglets, fenêtres, app installée) se synchronisent
+        automatiquement : chaque vente est partagée en temps réel.
+      </p>
     </div>
   );
 }

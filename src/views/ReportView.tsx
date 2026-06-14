@@ -31,14 +31,20 @@ export function ReportView() {
   }
 
   const total = activeEvent.sales.reduce((acc, s) => acc + s.total, 0);
+  const cashFloat = activeEvent.cashFloat ?? 0;
   const sortedSales = [...activeEvent.sales].sort((a, b) => b.timestamp - a.timestamp);
   const lastSaleId = sortedSales[0]?.id;
 
   return (
     <div style={{ padding: 16 }}>
-      <header>
-        <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>{activeEvent.name}</div>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Rapport</h1>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>{activeEvent.name}</div>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Rapport</h1>
+        </div>
+        {activeEvent.locked && (
+          <span style={{ color: 'var(--color-danger)', fontWeight: 600, fontSize: 13 }}>🔒 Verrouillé</span>
+        )}
       </header>
 
       <section
@@ -50,10 +56,19 @@ export function ReportView() {
           border: '1px solid rgba(37, 99, 235, 0.2)'
         }}
       >
-        <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>Total</div>
+        <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>Recette (ventes)</div>
         <div style={{ fontSize: 28, fontWeight: 700 }}>{formatCents(total)}</div>
         <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>
           {activeEvent.sales.length} vente(s)
+        </div>
+        <div style={{ height: 1, background: 'rgba(37, 99, 235, 0.2)', margin: '12px 0' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+          <span style={{ color: 'var(--color-muted)', fontSize: 14 }}>Fond de caisse</span>
+          <span style={{ fontWeight: 500 }}>{formatCents(cashFloat)}</span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}>
+          <span style={{ fontSize: 14 }}>Total en caisse (fond + recette)</span>
+          <span style={{ fontWeight: 700 }}>{formatCents(cashFloat + total)}</span>
         </div>
       </section>
 

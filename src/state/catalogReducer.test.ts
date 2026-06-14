@@ -38,6 +38,32 @@ describe('catalogReducer', () => {
     expect(next).toHaveLength(1);
   });
 
+  it('stores icon and categoryId on add', () => {
+    const next = catalogReducer(empty, {
+      type: 'add',
+      name: 'Bière',
+      price: 300,
+      icon: '🍺',
+      categoryId: 'cat-drinks'
+    });
+    expect(next[0]).toMatchObject({ icon: '🍺', categoryId: 'cat-drinks' });
+  });
+
+  it('defaults categoryId to null when omitted on add', () => {
+    const next = catalogReducer(empty, { type: 'add', name: 'X', price: 1 });
+    expect(next[0].categoryId).toBeNull();
+  });
+
+  it('clearCategory unsets categoryId only on matching items', () => {
+    const seeded: Item[] = [
+      { id: 'a', name: 'A', price: 1, archived: false, categoryId: 'c1' },
+      { id: 'b', name: 'B', price: 1, archived: false, categoryId: 'c2' }
+    ];
+    const next = catalogReducer(seeded, { type: 'clearCategory', categoryId: 'c1' });
+    expect(next[0].categoryId).toBeNull();
+    expect(next[1].categoryId).toBe('c2');
+  });
+
   it('returns the same state for unknown ids on edit', () => {
     const seeded: Item[] = [{ id: 'a', name: 'X', price: 100, archived: false }];
     const next = catalogReducer(seeded, { type: 'edit', id: 'b', name: 'Y', price: 200 });

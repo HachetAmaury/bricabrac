@@ -1,11 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { ValidateModal } from '../components/ValidateModal';
+import { RecapModal } from '../components/RecapModal';
 import { formatCents, sumLines } from '../lib/money';
+import { tint } from '../lib/colors';
+import type { Item } from '../types';
+
+type Step = 'idle' | 'recap' | 'pay';
+
+const UNCATEGORIZED = '__none__';
 
 export function SellView() {
-  const { catalog, activeEvent, cart, dispatchCart, dispatchEvents } = useApp();
-  const [showValidate, setShowValidate] = useState(false);
+  const { catalog, categories, activeEvent, cart, dispatchCart, dispatchEvents } = useApp();
+  const [step, setStep] = useState<Step>('idle');
+
+  const locked = activeEvent?.locked ?? false;
 
   const enabledItems = useMemo(
     () =>
@@ -14,6 +23,30 @@ export function SellView() {
         : [],
     [catalog, activeEvent]
   );
+
+  // Group enabled items by category, in category order, with an uncategorised
+  // bucket last. Only non-empty groups are shown.
+  const groups = useMemo(() => {
+    const byCat = new Map<string, Item[]>();
+    for (const item of enabledItems) {
+      const key = item.categoryId && categories.some((c) => c.id === item.categoryId)
+        ? item.categoryId
+        : UNCATEGORIZED;
+      const list = byCat.get(key) ?? [];
+      list.push(item);
+      byCat.set(key, list);
+    }
+    const ordered: { id: string; name: string; color: string | null; items: Item[] }[] = [];
+    for (const cat of categories) {
+      const items = byCat.get(cat.id);
+      if (items && items.length) ordered.push({ id: cat.id, name: cat.name, color: cat.color, items });
+    }
+    const none = byCat.get(UNCATEGORIZED);
+    if (none && none.length) {
+      ordered.push({ id: UNCATEGORIZED, name: 'Sans catégorie', color: null, items: none });
+    }
+    return ordered;
+  }, [enabledItems, categories]);
 
   if (!activeEvent) {
     return (
@@ -43,56 +76,141 @@ export function SellView() {
         </div>
       </header>
 
-      <ul style={{ listStyle: 'none', padding: 0, marginTop: 16 }}>
-        {enabledItems.length === 0 && (
-          <li style={{ color: 'var(--color-muted)' }}>
-            Aucun article activé pour cet événement. Activez-en depuis le Catalogue.
-          </li>
-        )}
-        {enabledItems.map((item) => {
-          const line = cart.find((l) => l.itemId === item.id);
-          const qty = line?.qty ?? 0;
-          return (
-            <li
-              key={item.id}
+      {locked && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: 12,
+            borderRadius: 8,
+            background: 'rgba(220, 38, 38, 0.08)',
+            border: '1px solid rgba(220, 38, 38, 0.3)',
+            color: 'var(--color-danger)',
+            fontWeight: 600
+          }}
+        >
+          🔒 Événement verrouillé — aucune vente possible. Déverrouillez-le dans l'onglet Événements.
+        </div>
+      )}
+
+      {enabledItems.length === 0 && (
+        <p style={{ color: 'var(--color-muted)', marginTop: 16 }}>
+          Aucun article activé pour cet événement. Activez-en depuis le Catalogue.
+        </p>
+      )}
+
+      {groups.map((group) => (
+        <section key={group.id} style={{ marginTop: 20 }}>
+          <h2
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 13,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+              color: 'var(--color-muted)',
+              margin: '0 0 10px'
+            }}
+          >
+            <span
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '12px 0',
-                borderBottom: '1px solid var(--color-border)'
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                background: group.color ?? 'var(--color-border)'
               }}
-            >
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 500 }}>{item.name}</div>
-                <div style={{ color: 'var(--color-muted)', fontSize: 14 }}>{formatCents(item.price)}</div>
-              </div>
-              {qty > 0 && (
+            />
+            {group.name}
+          </h2>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gap: 10
+            }}
+          >
+            {group.items.map((item) => {
+              const qty = cart.find((l) => l.itemId === item.id)?.qty ?? 0;
+              const color = group.color;
+              return (
                 <button
-                  onClick={() => dispatchCart({ type: 'remove', itemId: item.id })}
-                  style={{ width: 36, height: 36, borderRadius: 18, border: '1px solid var(--color-border)' }}
+                  key={item.id}
+                  aria-label={item.name}
+                  disabled={locked}
+                  onClick={() => dispatchCart({ type: 'add', itemId: item.id })}
+                  style={{
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                    minHeight: 104,
+                    padding: '14px 8px',
+                    borderRadius: 14,
+                    border: `2px solid ${color ?? 'var(--color-border)'}`,
+                    background: color ? tint(color) : '#fff',
+                    opacity: locked ? 0.5 : 1,
+                    textAlign: 'center'
+                  }}
                 >
-                  −
+                  {item.icon && <span style={{ fontSize: 30, lineHeight: 1 }}>{item.icon}</span>}
+                  <span style={{ fontWeight: 600, fontSize: 16 }}>{item.name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 18 }}>{formatCents(item.price)}</span>
+
+                  {qty > 0 && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        right: 6,
+                        minWidth: 26,
+                        height: 26,
+                        borderRadius: 13,
+                        background: 'var(--color-accent)',
+                        color: '#fff',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '0 6px'
+                      }}
+                    >
+                      {qty}
+                    </span>
+                  )}
+                  {qty > 0 && !locked && (
+                    <span
+                      role="button"
+                      aria-label={`Retirer ${item.name}`}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        dispatchCart({ type: 'remove', itemId: item.id });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        width: 26,
+                        height: 26,
+                        borderRadius: 13,
+                        background: '#fff',
+                        border: '1px solid var(--color-border)',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      −
+                    </span>
+                  )}
                 </button>
-              )}
-              {qty > 0 && <span style={{ minWidth: 24, textAlign: 'center' }}>{qty}</span>}
-              <button
-                onClick={() => dispatchCart({ type: 'add', itemId: item.id })}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  border: 'none',
-                  background: 'var(--color-accent)',
-                  color: 'white'
-                }}
-              >
-                +
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+              );
+            })}
+          </div>
+        </section>
+      ))}
 
       <footer
         style={{
@@ -110,10 +228,10 @@ export function SellView() {
       >
         <div style={{ fontSize: 22, fontWeight: 700, flex: 1 }}>{formatCents(total)}</div>
         <button
-          disabled={cart.length === 0}
-          onClick={() => setShowValidate(true)}
+          disabled={cart.length === 0 || locked}
+          onClick={() => setStep('recap')}
           style={{
-            background: cart.length === 0 ? 'var(--color-muted)' : 'var(--color-accent)',
+            background: cart.length === 0 || locked ? 'var(--color-muted)' : 'var(--color-accent)',
             color: 'white',
             border: 'none',
             borderRadius: 8,
@@ -125,11 +243,20 @@ export function SellView() {
         </button>
       </footer>
 
-      <ValidateModal
-        key={showValidate ? 'open' : 'closed'}
-        open={showValidate}
+      <RecapModal
+        open={step === 'recap'}
+        cart={cart}
+        catalog={catalog}
         total={total}
-        onCancel={() => setShowValidate(false)}
+        onBack={() => setStep('idle')}
+        onConfirm={() => setStep('pay')}
+      />
+
+      <ValidateModal
+        key={step === 'pay' ? 'pay-open' : 'pay-closed'}
+        open={step === 'pay'}
+        total={total}
+        onCancel={() => setStep('recap')}
         onConfirm={(cashGiven) => {
           dispatchEvents({
             type: 'recordSale',
@@ -140,7 +267,7 @@ export function SellView() {
             now: Date.now()
           });
           dispatchCart({ type: 'clear' });
-          setShowValidate(false);
+          setStep('idle');
         }}
       />
     </div>
