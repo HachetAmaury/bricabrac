@@ -8,7 +8,7 @@ test('happy path: create item, create event, sell, recap, validate, report', asy
 
   // Catalog tab → create item "Mug" at 5,00
   await page.getByRole('button', { name: 'Catalogue' }).click();
-  await page.getByRole('button', { name: '+ Nouvel article' }).click();
+  await page.getByRole('button', { name: 'Nouvel article' }).click();
   await page.getByLabel('Nom').fill('Mug');
   await page.getByLabel('Prix (€)').fill('5,00');
   await page.getByRole('button', { name: 'Valider' }).click();
@@ -16,16 +16,16 @@ test('happy path: create item, create event, sell, recap, validate, report', asy
 
   // Events tab → create event and select it as active
   await page.getByRole('button', { name: 'Événements' }).click();
-  await page.getByRole('button', { name: '+ Nouvel événement' }).click();
+  await page.getByRole('button', { name: 'Nouvel événement' }).click();
   await page.getByLabel('Nom').fill('Bric-à-brac test');
   await page.getByRole('button', { name: 'Créer' }).click();
   await expect(page.getByText('Bric-à-brac test')).toBeVisible();
-  // Click the event row button to make it the active event
+  // Tap the event row to make it the active event
   await page.getByRole('button', { name: /Bric-à-brac test/ }).first().click();
 
-  // Catalog tab → enable Mug in active event
+  // Catalog tab → enable Mug in active event via its switch
   await page.getByRole('button', { name: 'Catalogue' }).click();
-  await page.getByLabel('Actif').check();
+  await page.getByRole('switch', { name: 'Activer Mug' }).click();
 
   // Sell tab → tap the Mug button twice, validate
   await page.getByRole('button', { name: 'Vente' }).click();

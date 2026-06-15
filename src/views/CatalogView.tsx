@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { Modal } from '../components/Modal';
+import { NavBar, NavIconButton } from '../components/ui/NavBar';
+import { ListSection, Row } from '../components/ui/ListSection';
+import { Button } from '../components/ui/Button';
+import { Toggle } from '../components/ui/Toggle';
+import { PlusIcon } from '../components/ui/icons';
 import { formatCents, parseAmount } from '../lib/money';
 import { CATEGORY_COLORS, tint } from '../lib/colors';
 import { ITEM_ICONS } from '../lib/icons';
@@ -9,8 +14,28 @@ import type { Item, Category } from '../types';
 type Editing = { mode: 'create' } | { mode: 'edit'; item: Item } | null;
 type CatEditing = { mode: 'create' } | { mode: 'edit'; category: Category } | null;
 
+function IconTile({ icon, color }: { icon?: string; color?: string }) {
+  return (
+    <span
+      style={{
+        width: 38,
+        height: 38,
+        flexShrink: 0,
+        borderRadius: 9,
+        background: color ? tint(color, '28') : 'var(--fill)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 22
+      }}
+    >
+      {icon ?? '🛒'}
+    </span>
+  );
+}
+
 export function CatalogView() {
-  const { catalog, categories, dispatchCatalog, dispatchCategories, activeEvent, dispatchEvents } = useApp();
+  const { catalog, categories, dispatchCatalog, activeEvent, dispatchEvents } = useApp();
   const [editing, setEditing] = useState<Editing>(null);
   const [catEditing, setCatEditing] = useState<CatEditing>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -20,147 +45,109 @@ export function CatalogView() {
   const catById = new Map(categories.map((c) => [c.id, c]));
 
   return (
-    <div style={{ padding: 16 }}>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Catalogue</h1>
-        <button
-          onClick={() => setEditing({ mode: 'create' })}
-          style={{
-            background: 'var(--color-accent)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            padding: '8px 12px'
-          }}
-        >
-          + Nouvel article
-        </button>
-      </header>
+    <div>
+      <NavBar
+        title="Catalogue"
+        rightAction={
+          <NavIconButton label="Nouvel article" onClick={() => setEditing({ mode: 'create' })}>
+            <PlusIcon size={28} />
+          </NavIconButton>
+        }
+      />
 
-      {/* Categories */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24 }}>
-        <h2 style={{ fontSize: 14, color: 'var(--color-muted)', margin: 0 }}>Catégories</h2>
-        <button onClick={() => setCatEditing({ mode: 'create' })}>+ Catégorie</button>
+      <div style={{ padding: '0 16px' }}>
+        {/* Categories */}
+        <ListSection header="Catégories">
+          {categories.map((cat) => {
+            const count = catalog.filter((i) => i.categoryId === cat.id).length;
+            return (
+              <Row
+                key={cat.id}
+                leading={<span style={{ width: 20, height: 20, borderRadius: 5, background: cat.color }} />}
+                title={cat.name}
+                subtitle={`${count} article(s)`}
+                onClick={() => setCatEditing({ mode: 'edit', category: cat })}
+              />
+            );
+          })}
+          <Row
+            title={<span style={{ color: 'var(--ios-blue)' }}>Nouvelle catégorie</span>}
+            leading={<PlusIcon size={20} style={{ color: 'var(--ios-blue)' }} />}
+            onClick={() => setCatEditing({ mode: 'create' })}
+            accessory={<span style={{ width: 8 }} />}
+          />
+        </ListSection>
+
+        {/* Active items */}
+        <ListSection header="Articles">
+          {active.length === 0 && (
+            <Row title={<span style={{ color: 'var(--label-secondary)' }}>Aucun article.</span>} />
+          )}
+          {active.map((item) => {
+            const enabled = activeEvent?.enabledItemIds.includes(item.id) ?? false;
+            const cat = item.categoryId ? catById.get(item.categoryId) : undefined;
+            return (
+              <Row
+                key={item.id}
+                leading={<IconTile icon={item.icon} color={cat?.color} />}
+                title={item.name}
+                subtitle={
+                  <>
+                    {formatCents(item.price)}
+                    {cat && (
+                      <>
+                        {' · '}
+                        <span style={{ color: cat.color, fontWeight: 600 }}>{cat.name}</span>
+                      </>
+                    )}
+                  </>
+                }
+                onClick={() => setEditing({ mode: 'edit', item })}
+                accessory={
+                  activeEvent ? (
+                    <Toggle
+                      checked={enabled}
+                      label={`Activer ${item.name}`}
+                      onChange={() => dispatchEvents({ type: 'toggleItem', eventId: activeEvent.id, itemId: item.id })}
+                    />
+                  ) : (
+                    <span style={{ width: 8 }} />
+                  )
+                }
+              />
+            );
+          })}
+        </ListSection>
+
+        {activeEvent && (
+          <p style={{ color: 'var(--label-secondary)', fontSize: 13, margin: '-14px 4px 22px' }}>
+            Le bouton vert active l'article pour « {activeEvent.name} » (visible dans l'onglet Vente).
+          </p>
+        )}
+
+        {/* Archived */}
+        <ListSection>
+          <Row
+            title={`Articles archivés (${archived.length})`}
+            onClick={() => setShowArchived((v) => !v)}
+            accessory={<span style={{ color: 'var(--label-tertiary)' }}>{showArchived ? '▾' : '▸'}</span>}
+          />
+          {showArchived &&
+            archived.map((item) => (
+              <Row
+                key={item.id}
+                leading={<IconTile icon={item.icon} />}
+                title={<span style={{ opacity: 0.7 }}>{item.name}</span>}
+                subtitle={formatCents(item.price)}
+                trailing={
+                  <Button size="sm" variant="tinted" onClick={() => dispatchCatalog({ type: 'restore', id: item.id })}>
+                    Restaurer
+                  </Button>
+                }
+              />
+            ))}
+        </ListSection>
       </div>
-      {categories.length === 0 && (
-        <p style={{ color: 'var(--color-muted)', fontSize: 14 }}>Aucune catégorie pour l'instant.</p>
-      )}
-      <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
-        {categories.map((cat) => {
-          const count = catalog.filter((i) => i.categoryId === cat.id).length;
-          return (
-            <li
-              key={cat.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 0',
-                borderBottom: '1px solid var(--color-border)'
-              }}
-            >
-              <span style={{ width: 16, height: 16, borderRadius: 4, background: cat.color }} />
-              <span style={{ flex: 1, fontWeight: 500 }}>{cat.name}</span>
-              <span style={{ color: 'var(--color-muted)', fontSize: 13 }}>{count} article(s)</span>
-              <button onClick={() => setCatEditing({ mode: 'edit', category: cat })}>Modifier</button>
-              <button
-                onClick={() => {
-                  if (confirm(`Supprimer la catégorie "${cat.name}" ? Les articles ne seront pas supprimés.`)) {
-                    dispatchCatalog({ type: 'clearCategory', categoryId: cat.id });
-                    dispatchCategories({ type: 'delete', id: cat.id });
-                  }
-                }}
-                style={{ color: 'var(--color-danger)' }}
-              >
-                Suppr.
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      <h2 style={{ fontSize: 14, color: 'var(--color-muted)', marginTop: 24 }}>Actifs</h2>
-      {active.length === 0 && <p style={{ color: 'var(--color-muted)' }}>Aucun article.</p>}
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {active.map((item) => {
-          const enabled = activeEvent?.enabledItemIds.includes(item.id) ?? false;
-          const cat = item.categoryId ? catById.get(item.categoryId) : undefined;
-          return (
-            <li
-              key={item.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '10px',
-                marginBottom: 4,
-                borderRadius: 8,
-                borderBottom: '1px solid var(--color-border)',
-                background: cat ? tint(cat.color, '18') : 'transparent'
-              }}
-            >
-              <span style={{ fontSize: 22, width: 28, textAlign: 'center' }}>{item.icon ?? '🛒'}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 500 }}>{item.name}</div>
-                <div style={{ color: 'var(--color-muted)', fontSize: 14 }}>
-                  {formatCents(item.price)}
-                  {cat && (
-                    <>
-                      {' · '}
-                      <span style={{ color: cat.color, fontWeight: 600 }}>{cat.name}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {activeEvent && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={() =>
-                      dispatchEvents({ type: 'toggleItem', eventId: activeEvent.id, itemId: item.id })
-                    }
-                  />
-                  Actif
-                </label>
-              )}
-              <button onClick={() => setEditing({ mode: 'edit', item })}>Modifier</button>
-              <button onClick={() => dispatchCatalog({ type: 'archive', id: item.id })}>Archiver</button>
-            </li>
-          );
-        })}
-      </ul>
-
-      <button
-        onClick={() => setShowArchived((v) => !v)}
-        style={{ marginTop: 16, background: 'transparent', border: 'none', color: 'var(--color-muted)' }}
-      >
-        {showArchived ? '▾' : '▸'} Archivés ({archived.length})
-      </button>
-      {showArchived && (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {archived.map((item) => (
-            <li
-              key={item.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '10px 0',
-                borderBottom: '1px solid var(--color-border)',
-                opacity: 0.6
-              }}
-            >
-              <span style={{ fontSize: 20, width: 28, textAlign: 'center' }}>{item.icon ?? '🛒'}</span>
-              <div style={{ flex: 1 }}>
-                <div>{item.name}</div>
-                <div style={{ color: 'var(--color-muted)', fontSize: 14 }}>{formatCents(item.price)}</div>
-              </div>
-              <button onClick={() => dispatchCatalog({ type: 'restore', id: item.id })}>Restaurer</button>
-            </li>
-          ))}
-        </ul>
-      )}
 
       <EditModal editing={editing} onClose={() => setEditing(null)} />
       <CategoryModal catEditing={catEditing} onClose={() => setCatEditing(null)} />
@@ -198,34 +185,30 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
     onClose();
   };
 
+  const fieldStyle = { width: '100%', padding: 12, marginTop: 6, fontSize: 17 } as const;
+
   return (
     <Modal open={true} onClose={onClose} title={editing.mode === 'create' ? 'Nouvel article' : 'Modifier'}>
-      <label style={{ display: 'block', marginBottom: 8 }}>
+      <label style={{ display: 'block', marginBottom: 12, color: 'var(--label-secondary)', fontSize: 15 }}>
         Nom
-        <input
-          autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
-        />
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} style={fieldStyle} />
       </label>
-      <label style={{ display: 'block', marginBottom: 8 }}>
+      <label style={{ display: 'block', marginBottom: 12, color: 'var(--label-secondary)', fontSize: 15 }}>
         Prix (€)
         <input
           inputMode="decimal"
           value={priceText}
           onChange={(e) => setPriceText(e.target.value)}
           placeholder="0,00"
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={fieldStyle}
         />
       </label>
-
-      <label style={{ display: 'block', marginBottom: 8 }}>
+      <label style={{ display: 'block', marginBottom: 12, color: 'var(--label-secondary)', fontSize: 15 }}>
         Catégorie
         <select
           value={categoryId ?? ''}
           onChange={(e) => setCategoryId(e.target.value === '' ? null : e.target.value)}
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={fieldStyle}
         >
           <option value="">Aucune</option>
           {categories.map((c) => (
@@ -236,29 +219,32 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
         </select>
       </label>
 
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ marginBottom: 4 }}>Icône {icon && <span style={{ fontSize: 20 }}>{icon}</span>}</div>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 6, color: 'var(--label-secondary)', fontSize: 15 }}>
+          Icône {icon && <span style={{ fontSize: 20 }}>{icon}</span>}
+        </div>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
-            gap: 4,
-            maxHeight: 160,
+            gridTemplateColumns: 'repeat(auto-fill, minmax(44px, 1fr))',
+            gap: 6,
+            maxHeight: 168,
             overflowY: 'auto',
-            padding: 4,
-            border: '1px solid var(--color-border)',
-            borderRadius: 8
+            padding: 6,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--separator)',
+            borderRadius: 12
           }}
         >
           <button
             type="button"
             onClick={() => setIcon(undefined)}
             style={{
-              height: 40,
+              height: 44,
               fontSize: 12,
-              borderRadius: 6,
-              border: icon === undefined ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-              background: '#fff'
+              borderRadius: 9,
+              border: icon === undefined ? '2px solid var(--ios-blue)' : '1px solid var(--separator)',
+              background: 'var(--bg-elevated)'
             }}
           >
             Aucune
@@ -269,11 +255,11 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
               key={emoji}
               onClick={() => setIcon(emoji)}
               style={{
-                height: 40,
-                fontSize: 22,
-                borderRadius: 6,
-                border: icon === emoji ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-                background: icon === emoji ? 'rgba(37, 99, 235, 0.08)' : '#fff'
+                height: 44,
+                fontSize: 24,
+                borderRadius: 9,
+                border: icon === emoji ? '2px solid var(--ios-blue)' : '1px solid var(--separator)',
+                background: icon === emoji ? 'rgba(0,122,255,0.08)' : 'var(--bg-elevated)'
               }}
             >
               {emoji}
@@ -282,15 +268,28 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
         </div>
       </div>
 
-      {error && <p style={{ color: 'var(--color-danger)', margin: '4px 0' }}>{error}</p>}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
-        <button onClick={onClose}>Annuler</button>
-        <button
-          onClick={onSubmit}
-          style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6 }}
+      {error && <p style={{ color: 'var(--ios-red)', margin: '4px 0' }}>{error}</p>}
+
+      {editing.mode === 'edit' && (
+        <Button
+          variant="tinted"
+          size="lg"
+          style={{ color: 'var(--ios-red)', background: 'rgba(255,59,48,0.1)', marginBottom: 10 }}
+          onClick={() => {
+            dispatchCatalog({ type: 'archive', id: editing.item.id });
+            onClose();
+          }}
         >
+          Archiver l'article
+        </Button>
+      )}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="gray" size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="filled" size="lg" onClick={onSubmit}>
           Valider
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -308,7 +307,7 @@ function CategoryModal({ catEditing, onClose }: { catEditing: CatEditing; onClos
 }
 
 function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<CatEditing>; onClose: () => void }) {
-  const { dispatchCategories } = useApp();
+  const { dispatchCategories, dispatchCatalog } = useApp();
   const [name, setName] = useState(catEditing.mode === 'edit' ? catEditing.category.name : '');
   const [color, setColor] = useState(catEditing.mode === 'edit' ? catEditing.category.color : CATEGORY_COLORS[0]);
   const [error, setError] = useState<string | null>(null);
@@ -326,18 +325,18 @@ function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<C
 
   return (
     <Modal open={true} onClose={onClose} title={catEditing.mode === 'create' ? 'Nouvelle catégorie' : 'Modifier la catégorie'}>
-      <label style={{ display: 'block', marginBottom: 12 }}>
+      <label style={{ display: 'block', marginBottom: 14, color: 'var(--label-secondary)', fontSize: 15 }}>
         Nom
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ex. Boissons"
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={{ width: '100%', padding: 12, marginTop: 6, fontSize: 17 }}
         />
       </label>
-      <div style={{ marginBottom: 8 }}>Couleur</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ marginBottom: 8, color: 'var(--label-secondary)', fontSize: 15 }}>Couleur</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         {CATEGORY_COLORS.map((c) => (
           <button
             type="button"
@@ -345,25 +344,41 @@ function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<C
             aria-label={`Couleur ${c}`}
             onClick={() => setColor(c)}
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
+              width: 38,
+              height: 38,
+              borderRadius: 19,
               background: c,
-              border: color === c ? '3px solid #111827' : '2px solid #fff',
-              boxShadow: '0 0 0 1px var(--color-border)'
+              border: color === c ? '3px solid var(--label)' : '2px solid #fff',
+              boxShadow: '0 0 0 1px var(--separator)'
             }}
           />
         ))}
       </div>
-      {error && <p style={{ color: 'var(--color-danger)', margin: '8px 0 0' }}>{error}</p>}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <button onClick={onClose}>Annuler</button>
-        <button
-          onClick={onSubmit}
-          style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6 }}
+      {error && <p style={{ color: 'var(--ios-red)', margin: '10px 0 0' }}>{error}</p>}
+
+      {catEditing.mode === 'edit' && (
+        <Button
+          variant="tinted"
+          size="lg"
+          style={{ color: 'var(--ios-red)', background: 'rgba(255,59,48,0.1)', margin: '16px 0 10px' }}
+          onClick={() => {
+            if (confirm(`Supprimer la catégorie "${catEditing.category.name}" ? Les articles ne seront pas supprimés.`)) {
+              dispatchCatalog({ type: 'clearCategory', categoryId: catEditing.category.id });
+              dispatchCategories({ type: 'delete', id: catEditing.category.id });
+              onClose();
+            }
+          }}
         >
+          Supprimer la catégorie
+        </Button>
+      )}
+      <div style={{ display: 'flex', gap: 10, marginTop: catEditing.mode === 'edit' ? 0 : 18 }}>
+        <Button variant="gray" size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="filled" size="lg" onClick={onSubmit}>
           Valider
-        </button>
+        </Button>
       </div>
     </Modal>
   );

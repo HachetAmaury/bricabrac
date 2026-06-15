@@ -1,11 +1,14 @@
+import type { ReactNode } from 'react';
+import { CalendarIcon, CartIcon, ChartIcon, CashIcon, TagIcon } from './ui/icons';
+
 export type TabId = 'events' | 'sell' | 'report' | 'cash' | 'catalog';
 
-const tabs: { id: TabId; label: string }[] = [
-  { id: 'events', label: 'Événements' },
-  { id: 'sell', label: 'Vente' },
-  { id: 'report', label: 'Rapport' },
-  { id: 'cash', label: 'Caisse' },
-  { id: 'catalog', label: 'Catalogue' }
+const tabs: { id: TabId; label: string; Icon: (p: { size?: number }) => ReactNode }[] = [
+  { id: 'events', label: 'Événements', Icon: CalendarIcon },
+  { id: 'sell', label: 'Vente', Icon: CartIcon },
+  { id: 'report', label: 'Rapport', Icon: ChartIcon },
+  { id: 'cash', label: 'Caisse', Icon: CashIcon },
+  { id: 'catalog', label: 'Catalogue', Icon: TagIcon }
 ];
 
 export function TabBar({
@@ -22,29 +25,42 @@ export function TabBar({
         bottom: 0,
         left: 0,
         right: 0,
-        height: 'var(--tab-height)',
         display: 'grid',
         gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
-        background: '#ffffff',
-        borderTop: '1px solid var(--color-border)',
-        paddingBottom: 'env(safe-area-inset-bottom)'
+        background: 'rgba(249,249,251,0.82)',
+        backdropFilter: 'saturate(180%) blur(20px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+        borderTop: '0.5px solid var(--separator)',
+        paddingBottom: 'var(--safe-bottom)',
+        zIndex: 30
       }}
     >
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => onSelect(t.id)}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            fontSize: 13,
-            color: active === t.id ? 'var(--color-accent)' : 'var(--color-muted)',
-            fontWeight: active === t.id ? 600 : 400
-          }}
-        >
-          {t.label}
-        </button>
-      ))}
+      {tabs.map((t) => {
+        const isActive = active === t.id;
+        const color = isActive ? 'var(--ios-blue)' : 'var(--label-secondary)';
+        return (
+          <button
+            key={t.id}
+            onClick={() => onSelect(t.id)}
+            aria-label={t.label}
+            aria-current={isActive ? 'page' : undefined}
+            style={{
+              height: 'var(--tab-height)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 3,
+              background: 'transparent',
+              border: 'none',
+              color
+            }}
+          >
+            <t.Icon size={26} />
+            <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 500, color }}>{t.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

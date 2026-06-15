@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { AppProvider } from './state/AppContext';
 import { TabBar, type TabId } from './components/TabBar';
+import { ChromeProvider } from './components/ui/chrome';
+import { Drawer } from './components/ui/Drawer';
 import { CatalogView } from './views/CatalogView';
 import { EventsView } from './views/EventsView';
 import { ReportView } from './views/ReportView';
@@ -9,15 +11,25 @@ import { CashView } from './views/CashView';
 
 function Shell() {
   const [tab, setTab] = useState<TabId>('events');
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <div style={{ minHeight: '100%', paddingBottom: 'calc(var(--tab-height) + 16px)' }}>
-      {tab === 'events' && <EventsView />}
-      {tab === 'sell' && <SellView />}
-      {tab === 'report' && <ReportView />}
-      {tab === 'cash' && <CashView />}
-      {tab === 'catalog' && <CatalogView />}
-      <TabBar active={tab} onSelect={setTab} />
-    </div>
+    <ChromeProvider openMenu={() => setMenuOpen(true)}>
+      <div
+        style={{
+          minHeight: '100%',
+          paddingBottom: 'calc(var(--tab-height) + var(--safe-bottom))'
+        }}
+      >
+        {tab === 'events' && <EventsView />}
+        {tab === 'sell' && <SellView />}
+        {tab === 'report' && <ReportView />}
+        {tab === 'cash' && <CashView />}
+        {tab === 'catalog' && <CatalogView />}
+        <TabBar active={tab} onSelect={setTab} />
+      </div>
+      <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+    </ChromeProvider>
   );
 }
 

@@ -1,6 +1,10 @@
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { Modal } from '../components/Modal';
+import { NavBar, NavIconButton } from '../components/ui/NavBar';
+import { ListSection, Row } from '../components/ui/ListSection';
+import { Button } from '../components/ui/Button';
+import { PlusIcon, CheckIcon, LockIcon, LockOpenIcon, PencilIcon, TrashIcon } from '../components/ui/icons';
 import { formatCents } from '../lib/money';
 import type { EventKind, SaleEvent } from '../types';
 
@@ -10,116 +14,75 @@ const KIND_LABELS: Record<EventKind, string> = {
   autre: 'Autre'
 };
 
-// Shared style for the per-event action buttons (second row of each card).
-const rowBtn: CSSProperties = {
-  background: '#fff',
-  border: '1px solid var(--color-border)',
-  borderRadius: 8,
-  padding: '8px 12px',
-  fontSize: 14
-};
-
 export function EventsView() {
-  const { events, activeEventId, setActiveEvent, dispatchEvents, activeEvent, user, setUser } = useApp();
+  const { events, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SaleEvent | null>(null);
 
   return (
-    <div style={{ padding: 16 }}>
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Événements</h1>
-        <button
-          onClick={() => setCreating(true)}
-          style={{
-            background: 'var(--color-accent)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            padding: '8px 12px'
-          }}
-        >
-          + Nouvel événement
-        </button>
-      </header>
+    <div>
+      <NavBar
+        title="Événements"
+        rightAction={
+          <NavIconButton label="Nouvel événement" onClick={() => setCreating(true)}>
+            <PlusIcon size={28} />
+          </NavIconButton>
+        }
+      />
 
-      <UserBar user={user} setUser={setUser} />
+      <div style={{ padding: '0 16px' }}>
+        {events.length === 0 && (
+          <p style={{ color: 'var(--label-secondary)', marginTop: 8 }}>
+            Aucun événement. Créez-en un pour commencer.
+          </p>
+        )}
 
-      {events.length === 0 && (
-        <p style={{ color: 'var(--color-muted)', marginTop: 24 }}>
-          Aucun événement. Créez-en un pour commencer.
-        </p>
-      )}
-
-      <ul style={{ listStyle: 'none', padding: 0, marginTop: 16 }}>
         {events.map((e) => {
           const total = e.sales.reduce((acc, s) => acc + s.total, 0);
           const isActive = e.id === activeEventId;
           return (
-            <li
-              key={e.id}
-              style={{
-                padding: 12,
-                borderRadius: 8,
-                marginBottom: 8,
-                background: isActive ? 'rgba(37, 99, 235, 0.08)' : '#fff',
-                border: isActive ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8
-              }}
-            >
-              <button
+            <ListSection key={e.id}>
+              <Row
+                leading={
+                  e.locked ? <LockIcon size={20} style={{ color: 'var(--ios-orange)' }} /> : undefined
+                }
+                title={<span style={{ fontWeight: 600 }}>{e.name}</span>}
+                subtitle={`${KIND_LABELS[e.kind]} · ${e.sales.length} vente(s) · ${formatCents(total)}`}
                 onClick={() => setActiveEvent(e.id)}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: 16 }}>
-                  {e.locked && <span title="Verrouillé">🔒 </span>}
-                  {e.name}
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 2 }}>
-                  {KIND_LABELS[e.kind]} · {e.sales.length} vente(s) · {formatCents(total)}
-                </div>
-              </button>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                  borderTop: '1px solid var(--color-border)',
-                  paddingTop: 8
-                }}
-              >
-                <button
+                accessory={
+                  isActive ? <CheckIcon size={22} style={{ color: 'var(--ios-blue)' }} /> : <span style={{ width: 22 }} />
+                }
+              />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px' }}>
+                <Button
+                  size="sm"
+                  variant="gray"
+                  leftIcon={e.locked ? <LockOpenIcon size={16} /> : <LockIcon size={16} />}
                   onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, locked: !e.locked })}
-                  title={e.locked ? 'Déverrouiller' : 'Verrouiller (bloque les ventes)'}
-                  style={rowBtn}
                 >
-                  {e.locked ? '🔓 Déverrouiller' : '🔒 Verrouiller'}
-                </button>
-                <button onClick={() => setRenaming(e)} style={rowBtn}>
+                  {e.locked ? 'Déverrouiller' : 'Verrouiller'}
+                </Button>
+                <Button size="sm" variant="gray" leftIcon={<PencilIcon size={16} />} onClick={() => setRenaming(e)}>
                   Renommer
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="sm"
+                  variant="plain"
+                  leftIcon={<TrashIcon size={16} />}
+                  style={{ marginLeft: 'auto', color: 'var(--ios-red)' }}
                   onClick={() => {
                     if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
                       dispatchEvents({ type: 'delete', id: e.id });
                     }
                   }}
-                  style={{ ...rowBtn, marginLeft: 'auto', color: 'var(--color-danger)' }}
                 >
                   Suppr.
-                </button>
+                </Button>
               </div>
-            </li>
+            </ListSection>
           );
         })}
-      </ul>
+      </div>
 
       <CreateModal
         key={creating ? 'create-open' : 'create-closed'}
@@ -149,58 +112,6 @@ export function EventsView() {
   );
 }
 
-function UserBar({ user, setUser }: { user: string; setUser: (name: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(user);
-
-  return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: 12,
-        borderRadius: 8,
-        background: '#fff',
-        border: '1px solid var(--color-border)'
-      }}
-    >
-      {editing ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Nom d'utilisateur / appareil"
-            style={{ flex: 1, padding: 8 }}
-          />
-          <button
-            onClick={() => {
-              setUser(draft.trim());
-              setEditing(false);
-            }}
-            style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 12px' }}
-          >
-            OK
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>Session</div>
-            <div style={{ fontWeight: 600 }}>{user ? `👤 ${user}` : 'Aucun utilisateur'}</div>
-          </div>
-          <button onClick={() => { setDraft(user); setEditing(true); }}>
-            {user ? 'Changer' : 'Se connecter'}
-          </button>
-        </div>
-      )}
-      <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--color-muted)' }}>
-        Les sessions ouvertes sur cet appareil (onglets, fenêtres, app installée) se synchronisent
-        automatiquement : chaque vente est partagée en temps réel.
-      </p>
-    </div>
-  );
-}
-
 function CreateModal({
   open,
   onClose,
@@ -219,22 +130,22 @@ function CreateModal({
   if (!open) return null;
   return (
     <Modal open={open} onClose={onClose} title="Nouvel événement">
-      <label style={{ display: 'block', marginBottom: 8 }}>
+      <label style={{ display: 'block', marginBottom: 12 }}>
         Nom
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ex. Bric-à-brac 14 juin"
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={{ width: '100%', padding: 11, marginTop: 4 }}
         />
       </label>
-      <label style={{ display: 'block', marginBottom: 8 }}>
+      <label style={{ display: 'block', marginBottom: 12 }}>
         Type
         <select
           value={kind}
           onChange={(e) => setKind(e.target.value as EventKind)}
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={{ width: '100%', padding: 11, marginTop: 4 }}
         >
           <option value="bric-a-brac">Bric-à-brac</option>
           <option value="tournoi">Tournoi</option>
@@ -242,19 +153,18 @@ function CreateModal({
         </select>
       </label>
       {copyFrom && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
           Copier les articles activés de "{copyFrom.name}"
         </label>
       )}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <button onClick={onClose}>Annuler</button>
-        <button
-          onClick={() => name.trim() && onCreate(name.trim(), kind, copy)}
-          style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6 }}
-        >
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <Button variant="gray" size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="filled" size="lg" disabled={name.trim() === ''} onClick={() => name.trim() && onCreate(name.trim(), kind, copy)}>
           Créer
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -277,16 +187,15 @@ function RenameModal({
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
-        style={{ width: '100%', padding: 8 }}
+        style={{ width: '100%', padding: 11 }}
       />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-        <button onClick={onClose}>Annuler</button>
-        <button
-          onClick={() => name.trim() && onRename(name.trim())}
-          style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: 6 }}
-        >
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <Button variant="gray" size="lg" onClick={onClose}>
+          Annuler
+        </Button>
+        <Button variant="filled" size="lg" disabled={name.trim() === ''} onClick={() => name.trim() && onRename(name.trim())}>
           Valider
-        </button>
+        </Button>
       </div>
     </Modal>
   );

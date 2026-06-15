@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
+import { Button } from './ui/Button';
 import { formatCents, parseAmount } from '../lib/money';
 
 export function ValidateModal({
@@ -19,34 +20,33 @@ export function ValidateModal({
 
   return (
     <Modal open={open} onClose={onCancel} title="Encaisser">
-      <p style={{ fontSize: 22, fontWeight: 600, margin: '8px 0 16px' }}>
+      <p style={{ fontSize: 22, fontWeight: 700, margin: '0 0 16px' }}>
         Total : {formatCents(total)}
       </p>
-      <label style={{ display: 'block' }}>
+      <label style={{ display: 'block', color: 'var(--label-secondary)', fontSize: 15 }}>
         Montant reçu (optionnel)
         <input
           inputMode="decimal"
           value={cashText}
           onChange={(e) => setCashText(e.target.value)}
           placeholder="0,00"
-          style={{ width: '100%', padding: 8, marginTop: 4 }}
+          style={{ width: '100%', padding: 12, marginTop: 6, fontSize: 17 }}
           autoFocus
         />
       </label>
       {change !== null && (
-        <p style={{ marginTop: 8 }}>
+        <p style={{ marginTop: 12, fontSize: 17 }}>
           {change >= 0 ? 'À rendre : ' : 'Reste dû : '}
           <strong>{formatCents(Math.abs(change))}</strong>
         </p>
       )}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-        <button onClick={onCancel}>Annuler</button>
-        <button
-          onClick={() => onConfirm(parsed ?? undefined)}
-          style={{ background: 'var(--color-accent)', color: 'white', border: 'none', padding: '8px 14px', borderRadius: 6 }}
-        >
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <Button variant="gray" size="lg" onClick={onCancel}>
+          Annuler
+        </Button>
+        <Button variant="filled" size="lg" onClick={() => onConfirm(parsed ?? undefined)}>
           Confirmer
-        </button>
+        </Button>
       </div>
     </Modal>
   );
