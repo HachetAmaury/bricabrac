@@ -134,6 +134,13 @@ export const ExportIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const ImportIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 4v11M8 11l4 4 4-4" />
+    <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+  </Svg>
+);
+
 export const InfoIcon = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="9" />

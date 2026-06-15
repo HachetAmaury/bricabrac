@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
+import { parseBackup } from '../../lib/backup';
 import { ListSection, Row } from './ListSection';
 import { Button } from './Button';
-import { CloseIcon, UserIcon, ExportIcon, InfoIcon } from './icons';
+import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
 
 const APP_VERSION = '0.2.0';
 
 export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user, setUser, catalog, categories, events } = useApp();
+  const { user, setUser, catalog, categories, events, dispatchCatalog, dispatchCategories, dispatchEvents } = useApp();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(user);
   const [about, setAbout] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
@@ -23,6 +25,30 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
     a.download = `bricabrac-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const importData = async (file: File) => {
+    const text = await file.text();
+    const result = parseBackup(text);
+    if (!result.ok) {
+      alert(`Import impossible : ${result.error}`);
+      return;
+    }
+    const confirmed = window.confirm(
+      'Importer cette sauvegarde remplacera toutes les données actuelles (articles, catégories et événements). Continuer ?'
+    );
+    if (!confirmed) return;
+    dispatchCatalog({ type: 'hydrate', items: result.data.catalog });
+    dispatchCategories({ type: 'hydrate', categories: result.data.categories });
+    dispatchEvents({ type: 'hydrate', events: result.data.events });
+    onClose();
+  };
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset so picking the same file again still fires onChange.
+    e.target.value = '';
+    if (file) await importData(file);
   };
 
   return (
@@ -78,6 +104,8 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
             <div style={{ padding: 12, display: 'flex', gap: 8 }}>
               <input
                 autoFocus
+                autoComplete="off"
+                autoCorrect="off"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Nom d'utilisateur / appareil"
@@ -114,6 +142,18 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
               exportData();
               onClose();
             }}
+          />
+          <Row
+            leading={<ImportIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
+            title="Importer (restaurer JSON)"
+            onClick={() => fileInputRef.current?.click()}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            onChange={onFileChange}
+            style={{ display: 'none' }}
           />
           <Row
             leading={<InfoIcon size={22} style={{ color: 'var(--ios-blue)' }} />}

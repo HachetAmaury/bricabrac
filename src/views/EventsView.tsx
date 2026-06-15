@@ -137,6 +137,8 @@ function CreateModal({
         Nom
         <input
           autoFocus
+          autoComplete="off"
+          autoCorrect="off"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ex. Bric-à-brac 14 juin"
@@ -188,6 +190,8 @@ function RenameModal({
     <Modal open={true} onClose={onClose} title="Renommer">
       <input
         autoFocus
+        autoComplete="off"
+        autoCorrect="off"
         value={name}
         onChange={(e) => setName(e.target.value)}
         style={{ width: '100%', padding: 11 }}
