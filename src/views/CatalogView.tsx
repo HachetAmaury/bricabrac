@@ -194,7 +194,7 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
     <Modal open={true} onClose={onClose} title={editing.mode === 'create' ? 'Nouvel article' : 'Modifier'}>
       <label style={{ display: 'block', marginBottom: 12, color: 'var(--label-secondary)', fontSize: 15 }}>
         Nom
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} style={fieldStyle} />
+        <input autoFocus autoComplete="off" autoCorrect="off" value={name} onChange={(e) => setName(e.target.value)} style={fieldStyle} />
       </label>
       <label style={{ display: 'block', marginBottom: 12, color: 'var(--label-secondary)', fontSize: 15 }}>
         Prix (€)
@@ -332,6 +332,8 @@ function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<C
         Nom
         <input
           autoFocus
+          autoComplete="off"
+          autoCorrect="off"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ex. Boissons"

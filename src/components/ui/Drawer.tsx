@@ -104,6 +104,8 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
             <div style={{ padding: 12, display: 'flex', gap: 8 }}>
               <input
                 autoFocus
+                autoComplete="off"
+                autoCorrect="off"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Nom d'utilisateur / appareil"
