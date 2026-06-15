@@ -18,6 +18,13 @@ function Shell() {
       <div
         style={{
           minHeight: '100%',
+          // #root is a fixed-height (100vh) flex column, so this shell is a
+          // flex item. Without flexShrink:0 the explicit minHeight below lets
+          // flex-shrink clamp the shell to the viewport height — its content
+          // then overflows *past* the padding, leaving the last row behind the
+          // bar. Pinning flex-shrink lets the shell grow to its content so the
+          // reserved space actually sits below the final row.
+          flexShrink: 0,
           // Reserve the tab-bar height plus a comfortable gap so the last row of
           // any scrolling view (Caisse bilan, Rapport, …) clears the translucent
           // bar instead of hiding behind it.
