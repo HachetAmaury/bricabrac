@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useApp } from '../state/AppContext';
 import { Modal } from '../components/Modal';
 import { formatCents } from '../lib/money';
@@ -8,6 +8,15 @@ const KIND_LABELS: Record<EventKind, string> = {
   tournoi: 'Tournoi',
   'bric-a-brac': 'Bric-à-brac',
   autre: 'Autre'
+};
+
+// Shared style for the per-event action buttons (second row of each card).
+const rowBtn: CSSProperties = {
+  background: '#fff',
+  border: '1px solid var(--color-border)',
+  borderRadius: 8,
+  padding: '8px 12px',
+  fontSize: 14
 };
 
 export function EventsView() {
@@ -55,39 +64,58 @@ export function EventsView() {
                 background: isActive ? 'rgba(37, 99, 235, 0.08)' : '#fff',
                 border: isActive ? '2px solid var(--color-accent)' : '1px solid var(--color-border)',
                 display: 'flex',
-                alignItems: 'center',
+                flexDirection: 'column',
                 gap: 8
               }}
             >
               <button
                 onClick={() => setActiveEvent(e.id)}
-                style={{ flex: 1, textAlign: 'left', background: 'transparent', border: 'none' }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0
+                }}
               >
-                <div style={{ fontWeight: 600 }}>
+                <div style={{ fontWeight: 600, fontSize: 16 }}>
                   {e.locked && <span title="Verrouillé">🔒 </span>}
                   {e.name}
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+                <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 2 }}>
                   {KIND_LABELS[e.kind]} · {e.sales.length} vente(s) · {formatCents(total)}
                 </div>
               </button>
-              <button
-                onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, locked: !e.locked })}
-                title={e.locked ? 'Déverrouiller' : 'Verrouiller (bloque les ventes)'}
-              >
-                {e.locked ? 'Déverrouiller' : 'Verrouiller'}
-              </button>
-              <button onClick={() => setRenaming(e)}>Renommer</button>
-              <button
-                onClick={() => {
-                  if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
-                    dispatchEvents({ type: 'delete', id: e.id });
-                  }
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  borderTop: '1px solid var(--color-border)',
+                  paddingTop: 8
                 }}
-                style={{ color: 'var(--color-danger)' }}
               >
-                Suppr.
-              </button>
+                <button
+                  onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, locked: !e.locked })}
+                  title={e.locked ? 'Déverrouiller' : 'Verrouiller (bloque les ventes)'}
+                  style={rowBtn}
+                >
+                  {e.locked ? '🔓 Déverrouiller' : '🔒 Verrouiller'}
+                </button>
+                <button onClick={() => setRenaming(e)} style={rowBtn}>
+                  Renommer
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
+                      dispatchEvents({ type: 'delete', id: e.id });
+                    }
+                  }}
+                  style={{ ...rowBtn, marginLeft: 'auto', color: 'var(--color-danger)' }}
+                >
+                  Suppr.
+                </button>
+              </div>
             </li>
           );
         })}
