@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { useApp } from '../state/AppContext';
 import { formatCents, parseAmount } from '../lib/money';
 import { DENOMINATIONS, cashCountTotal } from '../lib/cash';
@@ -7,6 +7,19 @@ import type { CashCount } from '../types';
 function denomLabel(valueCents: number): string {
   return valueCents >= 100 ? `${valueCents / 100} €` : `${valueCents} c`;
 }
+
+// Large, touch-friendly stepper button for the cash-count rows.
+const stepBtn: CSSProperties = {
+  width: 56,
+  height: 56,
+  flexShrink: 0,
+  borderRadius: 12,
+  border: '1px solid var(--color-border)',
+  background: '#fff',
+  fontSize: 28,
+  fontWeight: 600,
+  lineHeight: 1
+};
 
 export function CashView() {
   const { activeEvent, dispatchEvents } = useApp();
@@ -102,41 +115,48 @@ export function CashView() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 12,
-                  padding: '8px 0',
-                  borderBottom: '1px solid var(--color-border)'
+                  padding: '10px 12px',
+                  marginBottom: 8,
+                  borderRadius: 12,
+                  border: '1px solid var(--color-border)',
+                  background: qty > 0 ? 'rgba(37, 99, 235, 0.06)' : '#fff'
                 }}
               >
-                <span style={{ width: 70, fontWeight: 600 }}>{denomLabel(d.value)}</span>
-                <span style={{ width: 56, fontSize: 12, color: 'var(--color-muted)' }}>
-                  {d.kind === 'note' ? 'billet' : 'pièce'}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    aria-label={`Moins ${denomLabel(d.value)}`}
-                    onClick={() => setCount(d.value, Math.max(0, qty - 1))}
-                    style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}
-                  >
-                    −
-                  </button>
-                  <input
-                    inputMode="numeric"
-                    value={qty === 0 ? '' : String(qty)}
-                    placeholder="0"
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value.replace(/\D/g, ''), 10);
-                      setCount(d.value, Number.isFinite(n) ? n : 0);
-                    }}
-                    style={{ width: 52, padding: 6, textAlign: 'center' }}
-                  />
-                  <button
-                    aria-label={`Plus ${denomLabel(d.value)}`}
-                    onClick={() => setCount(d.value, qty + 1)}
-                    style={{ width: 34, height: 34, borderRadius: 8, border: '1px solid var(--color-border)', background: '#fff' }}
-                  >
-                    +
-                  </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700 }}>{denomLabel(d.value)}</div>
+                  <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+                    {d.kind === 'note' ? 'billet' : 'pièce'} · {formatCents(sub)}
+                  </div>
                 </div>
-                <span style={{ flex: 1, textAlign: 'right', color: 'var(--color-muted)' }}>{formatCents(sub)}</span>
+                <button
+                  aria-label={`Moins ${denomLabel(d.value)}`}
+                  onClick={() => setCount(d.value, Math.max(0, qty - 1))}
+                  disabled={qty === 0}
+                  style={{
+                    ...stepBtn,
+                    opacity: qty === 0 ? 0.4 : 1
+                  }}
+                >
+                  −
+                </button>
+                <input
+                  inputMode="numeric"
+                  aria-label={`Quantité ${denomLabel(d.value)}`}
+                  value={qty === 0 ? '' : String(qty)}
+                  placeholder="0"
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value.replace(/\D/g, ''), 10);
+                    setCount(d.value, Number.isFinite(n) ? n : 0);
+                  }}
+                  style={{ width: 64, height: 56, padding: 6, textAlign: 'center', fontSize: 22, fontWeight: 600, borderRadius: 10, border: '1px solid var(--color-border)' }}
+                />
+                <button
+                  aria-label={`Plus ${denomLabel(d.value)}`}
+                  onClick={() => setCount(d.value, qty + 1)}
+                  style={{ ...stepBtn, background: 'var(--color-accent)', color: '#fff', borderColor: 'var(--color-accent)' }}
+                >
+                  +
+                </button>
               </li>
             );
           })}
