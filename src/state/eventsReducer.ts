@@ -29,6 +29,13 @@ function mapEvent(state: SaleEvent[], id: string, fn: (e: SaleEvent) => SaleEven
   return next;
 }
 
+// A locked event is frozen: its sales, enabled items, and cash counts must not
+// change. This is the single source of truth — the UI mirrors it, but every
+// mutating action is also rejected here so locked data can never be touched.
+function isLocked(state: SaleEvent[], id: string): boolean {
+  return state.find((e) => e.id === id)?.locked ?? false;
+}
+
 export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEvent[] {
   switch (action.type) {
     case 'create':
@@ -46,8 +53,10 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
     case 'rename':
       return mapEvent(state, action.id, (e) => ({ ...e, name: action.name }));
     case 'delete':
+      if (isLocked(state, action.id)) return state; // can't delete a locked event
       return state.filter((e) => e.id !== action.id);
     case 'toggleItem':
+      if (isLocked(state, action.eventId)) return state; // items are frozen when locked
       return mapEvent(state, action.eventId, (e) => {
         const has = e.enabledItemIds.includes(action.itemId);
         return {
@@ -81,6 +90,7 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
     case 'undoLast': {
       const idx = state.findIndex((e) => e.id === action.eventId);
       if (idx < 0) return state;
+      if (state[idx].locked) return state; // can't remove sales from a locked event
       if (state[idx].sales.length === 0) return state;
       const next = state.slice();
       next[idx] = { ...next[idx], sales: next[idx].sales.slice(0, -1) };
@@ -89,8 +99,10 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
     case 'setLocked':
       return mapEvent(state, action.id, (e) => ({ ...e, locked: action.locked }));
     case 'setCashFloat':
+      if (isLocked(state, action.id)) return state; // cash is frozen when locked
       return mapEvent(state, action.id, (e) => ({ ...e, cashFloat: action.cashFloat }));
     case 'setCashCount':
+      if (isLocked(state, action.id)) return state; // cash is frozen when locked
       return mapEvent(state, action.id, (e) => ({ ...e, cashCount: action.cashCount }));
     case 'hydrate':
       return action.events;
