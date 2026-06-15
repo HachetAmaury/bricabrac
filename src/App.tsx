@@ -18,7 +18,10 @@ function Shell() {
       <div
         style={{
           minHeight: '100%',
-          paddingBottom: 'calc(var(--tab-height) + var(--safe-bottom))'
+          // Reserve the tab-bar height plus a comfortable gap so the last row of
+          // any scrolling view (Caisse bilan, Rapport, …) clears the translucent
+          // bar instead of hiding behind it.
+          paddingBottom: 'calc(var(--tab-height) + var(--safe-bottom) + 24px)'
         }}
       >
         {tab === 'events' && <EventsView />}
