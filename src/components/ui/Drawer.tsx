@@ -5,7 +5,11 @@ import { ListSection, Row } from './ListSection';
 import { Button } from './Button';
 import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
 
-const APP_VERSION = '0.2.0';
+// Schema version stamped into exported backups (data format, not the build).
+const BACKUP_VERSION = '0.2.0';
+// Build identifier baked in at compile time, so you can confirm which deploy a
+// device is actually running — handy for the stubborn iOS home-screen cache.
+const APP_VERSION = __APP_VERSION__;
 
 export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user, setUser, catalog, categories, events, dispatchCatalog, dispatchCategories, dispatchEvents } = useApp();
@@ -17,7 +21,7 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
   if (!open) return null;
 
   const exportData = () => {
-    const payload = { version: APP_VERSION, exportedAt: new Date().toISOString(), catalog, categories, events };
+    const payload = { version: BACKUP_VERSION, exportedAt: new Date().toISOString(), catalog, categories, events };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
