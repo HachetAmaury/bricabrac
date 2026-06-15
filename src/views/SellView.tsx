@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
 import { ValidateModal } from '../components/ValidateModal';
 import { RecapModal } from '../components/RecapModal';
+import { NavBar } from '../components/ui/NavBar';
+import { Button } from '../components/ui/Button';
+import { LockIcon } from '../components/ui/icons';
 import { formatCents, sumLines } from '../lib/money';
 import { tint } from '../lib/colors';
 import type { Item } from '../types';
@@ -24,8 +27,6 @@ export function SellView() {
     [catalog, activeEvent]
   );
 
-  // Group enabled items by category, in category order, with an uncategorised
-  // bucket last. Only non-empty groups are shown.
   const groups = useMemo(() => {
     const byCat = new Map<string, Item[]>();
     for (const item of enabledItems) {
@@ -50,9 +51,9 @@ export function SellView() {
 
   if (!activeEvent) {
     return (
-      <div style={{ padding: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Vente</h1>
-        <p style={{ marginTop: 16, color: 'var(--color-muted)' }}>
+      <div>
+        <NavBar title="Vente" />
+        <p style={{ padding: '0 16px', color: 'var(--label-secondary)' }}>
           Aucun événement actif. Créez ou sélectionnez un événement pour commencer.
         </p>
       </div>
@@ -67,180 +68,188 @@ export function SellView() {
   const dayTotal = activeEvent.sales.reduce((acc, s) => acc + s.total, 0);
 
   return (
-    <div style={{ padding: 16, paddingBottom: 'calc(var(--tab-height) + 96px)' }}>
-      <header>
-        <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>{activeEvent.name}</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <h1 style={{ margin: 0, fontSize: 22 }}>Vente</h1>
-          <span style={{ color: 'var(--color-muted)' }}>Journée : {formatCents(dayTotal)}</span>
-        </div>
-      </header>
+    <div style={{ paddingBottom: 'calc(var(--tab-height) + var(--safe-bottom) + 80px)' }}>
+      <NavBar
+        title="Vente"
+        subtitle={activeEvent.name}
+        rightAction={
+          <span style={{ color: 'var(--label-secondary)', fontSize: 15, paddingRight: 8 }}>
+            Journée {formatCents(dayTotal)}
+          </span>
+        }
+      />
 
-      {locked && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: 12,
-            borderRadius: 8,
-            background: 'rgba(220, 38, 38, 0.08)',
-            border: '1px solid rgba(220, 38, 38, 0.3)',
-            color: 'var(--color-danger)',
-            fontWeight: 600
-          }}
-        >
-          🔒 Événement verrouillé — aucune vente possible. Déverrouillez-le dans l'onglet Événements.
-        </div>
-      )}
-
-      {enabledItems.length === 0 && (
-        <p style={{ color: 'var(--color-muted)', marginTop: 16 }}>
-          Aucun article activé pour cet événement. Activez-en depuis le Catalogue.
-        </p>
-      )}
-
-      {groups.map((group) => (
-        <section key={group.id} style={{ marginTop: 20 }}>
-          <h2
+      <div style={{ padding: '0 16px' }}>
+        {locked && (
+          <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 8,
-              fontSize: 13,
-              textTransform: 'uppercase',
-              letterSpacing: 0.4,
-              color: 'var(--color-muted)',
-              margin: '0 0 10px'
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 12,
+              background: 'rgba(255,149,0,0.12)',
+              color: 'var(--ios-orange)',
+              fontWeight: 600
             }}
           >
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 3,
-                background: group.color ?? 'var(--color-border)'
-              }}
-            />
-            {group.name}
-          </h2>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-              gap: 10
-            }}
-          >
-            {group.items.map((item) => {
-              const qty = cart.find((l) => l.itemId === item.id)?.qty ?? 0;
-              const color = group.color;
-              return (
-                <button
-                  key={item.id}
-                  aria-label={item.name}
-                  disabled={locked}
-                  onClick={() => dispatchCart({ type: 'add', itemId: item.id })}
-                  style={{
-                    position: 'relative',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 4,
-                    minHeight: 104,
-                    padding: '14px 8px',
-                    borderRadius: 14,
-                    border: `2px solid ${color ?? 'var(--color-border)'}`,
-                    background: color ? tint(color) : '#fff',
-                    opacity: locked ? 0.5 : 1,
-                    textAlign: 'center'
-                  }}
-                >
-                  {item.icon && <span style={{ fontSize: 30, lineHeight: 1 }}>{item.icon}</span>}
-                  <span style={{ fontWeight: 600, fontSize: 16 }}>{item.name}</span>
-                  <span style={{ fontWeight: 700, fontSize: 18 }}>{formatCents(item.price)}</span>
-
-                  {qty > 0 && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        right: 6,
-                        minWidth: 26,
-                        height: 26,
-                        borderRadius: 13,
-                        background: 'var(--color-accent)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: '0 6px'
-                      }}
-                    >
-                      {qty}
-                    </span>
-                  )}
-                  {qty > 0 && !locked && (
-                    <span
-                      role="button"
-                      aria-label={`Retirer ${item.name}`}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        dispatchCart({ type: 'remove', itemId: item.id });
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        left: 6,
-                        width: 26,
-                        height: 26,
-                        borderRadius: 13,
-                        background: '#fff',
-                        border: '1px solid var(--color-border)',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    >
-                      −
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            <LockIcon size={18} />
+            Événement verrouillé — déverrouillez-le dans l'onglet Événements.
           </div>
-        </section>
-      ))}
+        )}
+
+        {enabledItems.length === 0 && (
+          <p style={{ color: 'var(--label-secondary)' }}>
+            Aucun article activé pour cet événement. Activez-en depuis le Catalogue.
+          </p>
+        )}
+
+        {groups.map((group) => (
+          <section key={group.id} style={{ marginBottom: 22 }}>
+            <h2
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 13,
+                textTransform: 'uppercase',
+                letterSpacing: 0.4,
+                color: 'var(--label-secondary)',
+                margin: '0 0 10px',
+                paddingLeft: 4
+              }}
+            >
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  background: group.color ?? 'var(--separator-opaque)'
+                }}
+              />
+              {group.name}
+            </h2>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: 10
+              }}
+            >
+              {group.items.map((item) => {
+                const qty = cart.find((l) => l.itemId === item.id)?.qty ?? 0;
+                const color = group.color;
+                return (
+                  <button
+                    key={item.id}
+                    aria-label={item.name}
+                    disabled={locked}
+                    onClick={() => dispatchCart({ type: 'add', itemId: item.id })}
+                    style={{
+                      position: 'relative',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                      minHeight: 108,
+                      padding: '14px 8px',
+                      borderRadius: 16,
+                      border: color ? `1.5px solid ${color}` : '1px solid var(--separator)',
+                      background: color ? tint(color) : 'var(--bg-elevated)',
+                      color: 'var(--label)',
+                      boxShadow: 'var(--shadow-card)',
+                      opacity: locked ? 0.5 : 1,
+                      textAlign: 'center'
+                    }}
+                  >
+                    {item.icon && <span style={{ fontSize: 32, lineHeight: 1 }}>{item.icon}</span>}
+                    <span style={{ fontWeight: 600, fontSize: 16 }}>{item.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 18 }}>{formatCents(item.price)}</span>
+
+                    {qty > 0 && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 6,
+                          right: 6,
+                          minWidth: 26,
+                          height: 26,
+                          borderRadius: 13,
+                          background: 'var(--ios-blue)',
+                          color: '#fff',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '0 6px'
+                        }}
+                      >
+                        {qty}
+                      </span>
+                    )}
+                    {qty > 0 && !locked && (
+                      <span
+                        role="button"
+                        aria-label={`Retirer ${item.name}`}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          dispatchCart({ type: 'remove', itemId: item.id });
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: 6,
+                          left: 6,
+                          width: 26,
+                          height: 26,
+                          borderRadius: 13,
+                          background: 'var(--bg-elevated)',
+                          border: '1px solid var(--separator)',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        −
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
 
       <footer
         style={{
           position: 'fixed',
           left: 0,
           right: 0,
-          bottom: 'var(--tab-height)',
+          bottom: 'calc(var(--tab-height) + var(--safe-bottom))',
           padding: 12,
-          background: '#ffffff',
-          borderTop: '1px solid var(--color-border)',
+          background: 'rgba(249,249,251,0.92)',
+          backdropFilter: 'saturate(180%) blur(20px)',
+          WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+          borderTop: '0.5px solid var(--separator)',
           display: 'flex',
           alignItems: 'center',
-          gap: 12
+          gap: 12,
+          zIndex: 25
         }}
       >
-        <div style={{ fontSize: 22, fontWeight: 700, flex: 1 }}>{formatCents(total)}</div>
-        <button
+        <div style={{ fontSize: 24, fontWeight: 700, flex: 1 }}>{formatCents(total)}</div>
+        <Button
+          variant="filled"
+          size="lg"
+          style={{ width: 'auto', minWidth: 130 }}
           disabled={cart.length === 0 || locked}
           onClick={() => setStep('recap')}
-          style={{
-            background: cart.length === 0 || locked ? 'var(--color-muted)' : 'var(--color-accent)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            padding: '10px 16px',
-            fontWeight: 600
-          }}
         >
           Valider
-        </button>
+        </Button>
       </footer>
 
       <RecapModal

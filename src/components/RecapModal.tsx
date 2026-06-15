@@ -1,4 +1,5 @@
 import { Modal } from './Modal';
+import { Button } from './ui/Button';
 import { formatCents } from '../lib/money';
 import type { Item, CartLine } from '../types';
 
@@ -70,24 +71,13 @@ export function RecapModal({
         <span style={{ color: 'var(--color-muted)' }}>{itemCount} article(s)</span>
         <span style={{ fontSize: 26, fontWeight: 700 }}>{formatCents(total)}</span>
       </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-        <button onClick={onBack} style={{ padding: '10px 16px' }}>
+      <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+        <Button variant="gray" size="lg" onClick={onBack}>
           Retour
-        </button>
-        <button
-          onClick={onConfirm}
-          style={{
-            background: 'var(--color-accent)',
-            color: 'white',
-            border: 'none',
-            borderRadius: 8,
-            padding: '10px 18px',
-            fontWeight: 600,
-            fontSize: 16
-          }}
-        >
+        </Button>
+        <Button variant="filled" size="lg" onClick={onConfirm}>
           Encaisser
-        </button>
+        </Button>
       </div>
     </Modal>
   );

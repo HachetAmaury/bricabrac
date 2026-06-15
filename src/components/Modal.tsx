@@ -1,5 +1,7 @@
 import { type ReactNode, useEffect } from 'react';
 
+// iOS-style bottom sheet. Keeps the original Modal API ({ open, onClose, title,
+// children }) so existing callers slide up from the bottom with a grab handle.
 export function Modal({
   open,
   onClose,
@@ -27,24 +29,40 @@ export function Modal({
         inset: 0,
         background: 'rgba(0,0,0,0.4)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-end',
         justifyContent: 'center',
-        padding: 16,
-        zIndex: 50
+        zIndex: 50,
+        animation: 'fade-in 0.2s ease'
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#ffffff',
-          borderRadius: 12,
-          padding: 16,
+          background: 'var(--bg-grouped)',
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          padding: '8px 16px calc(16px + var(--safe-bottom))',
           width: '100%',
-          maxWidth: 420,
-          boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+          maxWidth: 520,
+          maxHeight: '92vh',
+          overflowY: 'auto',
+          boxShadow: 'var(--shadow-sheet)',
+          animation: 'sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1)'
         }}
       >
-        <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>{title}</h2>
+        <div
+          aria-hidden="true"
+          style={{
+            width: 36,
+            height: 5,
+            borderRadius: 3,
+            background: 'var(--separator-opaque)',
+            margin: '4px auto 12px'
+          }}
+        />
+        <h2 style={{ margin: '0 0 14px', fontSize: 20, fontWeight: 700 }}>{title}</h2>
         {children}
       </div>
     </div>
