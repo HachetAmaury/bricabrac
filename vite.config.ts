@@ -10,8 +10,15 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // you can verify which build an iOS device is actually running.
 const buildId = `${pkg.version}-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}`;
 
+// GitHub Pages serves this as a project site under `/bricabrac/`, but Vercel
+// (and Netlify) serve from the domain root. Vercel sets VERCEL=1 during the
+// build, so we deploy at `/` there and keep the subpath everywhere else. Using
+// the wrong base is what produces a white screen: the asset URLs 404 and
+// nothing mounts. Override explicitly with VITE_BASE if needed.
+const base = process.env.VITE_BASE ?? (process.env.VERCEL ? '/' : '/bricabrac/');
+
 export default defineConfig({
-  base: '/bricabrac/',
+  base,
   define: {
     __APP_VERSION__: JSON.stringify(buildId)
   },
@@ -23,15 +30,15 @@ export default defineConfig({
       // on-foreground update check (essential for iOS standalone PWAs).
       injectRegister: false,
       manifest: {
-        id: '/bricabrac/',
+        id: base,
         name: 'Bric-à-brac',
         short_name: 'Bric-à-brac',
         description: 'Flea market sales companion',
         theme_color: '#f2f2f7',
         background_color: '#f2f2f7',
         display: 'standalone',
-        start_url: '/bricabrac/',
-        scope: '/bricabrac/',
+        start_url: base,
+        scope: base,
         icons: [
           { src: 'icons/192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/512.png', sizes: '512x512', type: 'image/png' },
