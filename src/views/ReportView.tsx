@@ -114,7 +114,7 @@ export function ReportView() {
                   subtitle={`${qty} article(s)`}
                   onClick={() => setExpanded((m) => ({ ...m, [sale.id]: !m[sale.id] }))}
                   accessory={
-                    sale.id === lastSaleId ? (
+                    sale.id === lastSaleId && !activeEvent.locked ? (
                       <span
                         role="button"
                         onClick={(ev) => {

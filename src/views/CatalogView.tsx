@@ -107,6 +107,7 @@ export function CatalogView() {
                   activeEvent ? (
                     <Toggle
                       checked={enabled}
+                      disabled={activeEvent.locked}
                       label={`Activer ${item.name}`}
                       onChange={() => dispatchEvents({ type: 'toggleItem', eventId: activeEvent.id, itemId: item.id })}
                     />
@@ -121,7 +122,9 @@ export function CatalogView() {
 
         {activeEvent && (
           <p style={{ color: 'var(--label-secondary)', fontSize: 13, margin: '-14px 4px 22px' }}>
-            Le bouton vert active l'article pour « {activeEvent.name} » (visible dans l'onglet Vente).
+            {activeEvent.locked
+              ? `« ${activeEvent.name} » est verrouillé : les articles activés ne peuvent plus être modifiés. Déverrouillez-le dans l'onglet Événements.`
+              : `Le bouton vert active l'article pour « ${activeEvent.name} » (visible dans l'onglet Vente).`}
           </p>
         )}
 

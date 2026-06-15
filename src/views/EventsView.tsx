@@ -69,8 +69,11 @@ export function EventsView() {
                   size="sm"
                   variant="plain"
                   leftIcon={<TrashIcon size={16} />}
-                  style={{ marginLeft: 'auto', color: 'var(--ios-red)' }}
+                  disabled={e.locked}
+                  title={e.locked ? 'Déverrouillez l’événement pour le supprimer' : undefined}
+                  style={{ marginLeft: 'auto', color: e.locked ? 'var(--label-tertiary)' : 'var(--ios-red)' }}
                   onClick={() => {
+                    if (e.locked) return;
                     if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
                       dispatchEvents({ type: 'delete', id: e.id });
                     }

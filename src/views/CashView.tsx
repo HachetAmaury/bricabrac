@@ -5,6 +5,7 @@ import { ListSection, Row } from '../components/ui/ListSection';
 import { Button } from '../components/ui/Button';
 import { formatCents, parseAmount } from '../lib/money';
 import { DENOMINATIONS, cashCountTotal } from '../lib/cash';
+import { LockIcon } from '../components/ui/icons';
 import type { CashCount } from '../types';
 
 function denomLabel(valueCents: number): string {
@@ -45,6 +46,7 @@ export function CashView() {
     );
   }
 
+  const locked = activeEvent.locked ?? false;
   const cashFloat = activeEvent.cashFloat ?? 0;
   const count: CashCount = activeEvent.cashCount ?? {};
   const counted = cashCountTotal(count);
@@ -52,6 +54,7 @@ export function CashView() {
   const diff = countedRevenue - salesTotal;
 
   const setCount = (value: number, qty: number) => {
+    if (locked) return;
     const next: CashCount = { ...count };
     if (qty <= 0) delete next[String(value)];
     else next[String(value)] = qty;
@@ -59,15 +62,44 @@ export function CashView() {
   };
 
   const commitFloat = () => {
+    if (locked) return;
     const cents = parseAmount(floatText);
     dispatchEvents({ type: 'setCashFloat', id: activeEvent.id, cashFloat: cents ?? 0 });
   };
 
   return (
     <div>
-      <NavBar title="Caisse" subtitle={activeEvent.name} />
+      <NavBar
+        title="Caisse"
+        subtitle={activeEvent.name}
+        rightAction={
+          locked ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--ios-orange)', fontSize: 14, paddingRight: 8 }}>
+              <LockIcon size={16} /> Verrouillé
+            </span>
+          ) : undefined
+        }
+      />
 
       <div style={{ padding: '0 16px' }}>
+        {locked && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              margin: '12px 0',
+              padding: 12,
+              borderRadius: 12,
+              background: 'rgba(255,149,0,0.12)',
+              color: 'var(--ios-orange)',
+              fontWeight: 600
+            }}
+          >
+            <LockIcon size={18} />
+            Événement verrouillé — la caisse ne peut plus être modifiée.
+          </div>
+        )}
         <ListSection
           header="Fond de caisse"
           footer="Montant présent dans la caisse en début de journée."
@@ -79,9 +111,10 @@ export function CashView() {
               onChange={(e) => setFloatText(e.target.value)}
               onBlur={commitFloat}
               placeholder="0,00"
-              style={{ flex: 1, padding: 12, fontSize: 17 }}
+              disabled={locked}
+              style={{ flex: 1, padding: 12, fontSize: 17, opacity: locked ? 0.5 : 1 }}
             />
-            <Button variant="filled" onClick={commitFloat}>
+            <Button variant="filled" onClick={commitFloat} disabled={locked}>
               Enregistrer
             </Button>
           </div>
@@ -102,8 +135,8 @@ export function CashView() {
                     <button
                       aria-label={`Moins ${denomLabel(d.value)}`}
                       onClick={() => setCount(d.value, Math.max(0, qty - 1))}
-                      disabled={qty === 0}
-                      style={{ ...stepBtn, opacity: qty === 0 ? 0.4 : 1 }}
+                      disabled={locked || qty === 0}
+                      style={{ ...stepBtn, opacity: locked || qty === 0 ? 0.4 : 1 }}
                     >
                       −
                     </button>
@@ -112,16 +145,18 @@ export function CashView() {
                       aria-label={`Quantité ${denomLabel(d.value)}`}
                       value={qty === 0 ? '' : String(qty)}
                       placeholder="0"
+                      disabled={locked}
                       onChange={(e) => {
                         const n = parseInt(e.target.value.replace(/\D/g, ''), 10);
                         setCount(d.value, Number.isFinite(n) ? n : 0);
                       }}
-                      style={{ width: 50, height: 46, padding: 4, textAlign: 'center', fontSize: 20, fontWeight: 600, borderRadius: 10 }}
+                      style={{ width: 50, height: 46, padding: 4, textAlign: 'center', fontSize: 20, fontWeight: 600, borderRadius: 10, opacity: locked ? 0.5 : 1 }}
                     />
                     <button
                       aria-label={`Plus ${denomLabel(d.value)}`}
                       onClick={() => setCount(d.value, qty + 1)}
-                      style={{ ...stepBtn, background: 'var(--ios-blue)', color: '#fff', borderColor: 'var(--ios-blue)' }}
+                      disabled={locked}
+                      style={{ ...stepBtn, background: 'var(--ios-blue)', color: '#fff', borderColor: 'var(--ios-blue)', opacity: locked ? 0.4 : 1 }}
                     >
                       +
                     </button>

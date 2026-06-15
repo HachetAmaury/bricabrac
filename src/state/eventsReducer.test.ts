@@ -150,6 +150,59 @@ describe('eventsReducer', () => {
     expect(next[0].sales).toHaveLength(0);
   });
 
+  it('does not remove a sale from a locked event (undoLast)', () => {
+    const seeded: SaleEvent[] = [
+      {
+        id: 'e1',
+        name: 'A',
+        kind: 'autre',
+        createdAt: 1,
+        enabledItemIds: [],
+        locked: true,
+        sales: [{ id: 's1', timestamp: 1, lines: [], total: 0 }]
+      }
+    ];
+    const next = eventsReducer(seeded, { type: 'undoLast', eventId: 'e1' });
+    expect(next).toBe(seeded);
+    expect(next[0].sales).toHaveLength(1);
+  });
+
+  it('does not toggle items on a locked event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: ['x'], sales: [], locked: true }
+    ];
+    const next = eventsReducer(seeded, { type: 'toggleItem', eventId: 'e1', itemId: 'y' });
+    expect(next).toBe(seeded);
+    expect(next[0].enabledItemIds).toEqual(['x']);
+  });
+
+  it('does not delete a locked event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [], locked: true }
+    ];
+    const next = eventsReducer(seeded, { type: 'delete', id: 'e1' });
+    expect(next).toBe(seeded);
+    expect(next).toHaveLength(1);
+  });
+
+  it('does not change the cash float on a locked event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [], locked: true, cashFloat: 100 }
+    ];
+    const next = eventsReducer(seeded, { type: 'setCashFloat', id: 'e1', cashFloat: 25000 });
+    expect(next).toBe(seeded);
+    expect(next[0].cashFloat).toBe(100);
+  });
+
+  it('does not change the cash count on a locked event', () => {
+    const seeded: SaleEvent[] = [
+      { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [], locked: true, cashCount: { '5000': 1 } }
+    ];
+    const next = eventsReducer(seeded, { type: 'setCashCount', id: 'e1', cashCount: { '5000': 9 } });
+    expect(next).toBe(seeded);
+    expect(next[0].cashCount).toEqual({ '5000': 1 });
+  });
+
   it('sets the cash float (fond de caisse)', () => {
     const seeded: SaleEvent[] = [
       { id: 'e1', name: 'A', kind: 'autre', createdAt: 1, enabledItemIds: [], sales: [] }
