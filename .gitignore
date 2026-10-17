@@ -17,3 +17,5 @@ playwright.config.d.ts
 # Secrets and Supabase CLI temp
 .env
 supabase/.temp
+.vercel
+.env*

@@ -1,4 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import { E2E_SKIP_REASON, cleanup, createCatalogAndEvent, hasE2eCredentials, login } from './helpers';
+
+test.skip(!hasE2eCredentials, E2E_SKIP_REASON);
 
 // The bottom tab bar (`<nav>`) is `position: fixed; bottom: 0`, so the app
 // shell reserves bottom padding for it. These tests prove the last row of a
@@ -9,14 +12,16 @@ import { test, expect, type Page } from '@playwright/test';
 // fixed bar would overlap the bottom-most content without the reserved gap.
 test.use({ viewport: { width: 390, height: 640 } });
 
-async function createActiveEvent(page: Page) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Événements' }).click();
-  await page.getByRole('button', { name: 'Nouvel événement' }).click();
-  await page.getByLabel('Nom').fill('Layout test');
-  await page.getByRole('button', { name: 'Créer' }).click();
-  // Tap the event row to make it the active event.
-  await page.getByRole('button', { name: /Layout test/ }).first().click();
+/** Logs in, creates a throwaway catalog + event, runs `body`, then cleans up. */
+async function withActiveEvent(page: Page, body: () => Promise<void>) {
+  const label = `E2E ${Date.now()}`;
+  await login(page);
+  try {
+    await createCatalogAndEvent(page, label);
+    await body();
+  } finally {
+    await cleanup(page, label);
+  }
 }
 
 /**
@@ -35,36 +40,32 @@ async function gapAboveTabBar(page: Page, row: ReturnType<Page['getByText']>) {
 }
 
 test('Caisse: the "Écart" line clears the bottom tab bar', async ({ page }) => {
-  await createActiveEvent(page);
-  await page.getByRole('button', { name: 'Caisse' }).click();
+  await withActiveEvent(page, async () => {
+    await page.getByRole('button', { name: 'Caisse' }).click();
 
-  // The "Écart" SummaryLine is the last row of the last (Bilan) section.
-  const ecartRow = page.getByText('Écart', { exact: true }).locator('..');
-  await expect(ecartRow).toBeVisible();
+    // The "Écart" SummaryLine is the last row of the last (Bilan) section.
+    const ecartRow = page.getByText('Écart', { exact: true }).locator('..');
+    await expect(ecartRow).toBeVisible();
 
-  const gap = await gapAboveTabBar(page, ecartRow);
-  // Must not be hidden behind the bar, and must keep the comfortable gap the
-  // shell reserves (tab height + safe-area inset + 24px) rather than sitting
-  // flush against it.
-  expect(gap).toBeGreaterThanOrEqual(16);
+    // Must not be hidden behind the bar, and must keep the comfortable gap the
+    // shell reserves (tab height + safe-area inset + 24px).
+    expect(await gapAboveTabBar(page, ecartRow)).toBeGreaterThanOrEqual(16);
+  });
 });
 
 test('Caisse: the last row still clears the bar with an iOS safe-area inset', async ({ page }) => {
   // Simulate an iOS home-indicator inset. Both the bar and the reserved
-  // padding key off `--safe-bottom`, so the clearance must survive a non-zero
-  // inset too.
+  // padding key off `--safe-bottom`.
   await page.addInitScript(() => {
     const style = document.createElement('style');
     style.textContent = ':root { --safe-bottom: 34px !important; }';
     document.documentElement.appendChild(style);
   });
 
-  await createActiveEvent(page);
-  await page.getByRole('button', { name: 'Caisse' }).click();
-
-  const ecartRow = page.getByText('Écart', { exact: true }).locator('..');
-  await expect(ecartRow).toBeVisible();
-
-  const gap = await gapAboveTabBar(page, ecartRow);
-  expect(gap).toBeGreaterThanOrEqual(16);
+  await withActiveEvent(page, async () => {
+    await page.getByRole('button', { name: 'Caisse' }).click();
+    const ecartRow = page.getByText('Écart', { exact: true }).locator('..');
+    await expect(ecartRow).toBeVisible();
+    expect(await gapAboveTabBar(page, ecartRow)).toBeGreaterThanOrEqual(16);
+  });
 });

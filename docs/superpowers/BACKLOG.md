@@ -4,7 +4,7 @@ Ordre = difficulté croissante. Une feature à la fois.
 Chaque feature passe par brainstorming → spec → plan → implémentation avant la suivante.
 
 État au 2026-10-17 : les PRs #5 à #9 (spec `specs/2026-06-14-pos-features.md`) ont livré 1 à 7.
-Contexte technique : PWA React + localStorage, zéro backend, zéro compte.
+Contexte technique : PWA React + Supabase (auth e-mail/mot de passe, Postgres, Realtime), file d'envoi hors-ligne. Voir `docs/SETUP.md`.
 
 | # | Feature | Difficulté | État |
 |---|---------|-----------|------|
@@ -16,7 +16,7 @@ Contexte technique : PWA React + localStorage, zéro backend, zéro compte.
 | 6 | Vente : gros boutons (icône + nom + prix + couleur catégorie) | ★★ | ✅ sauf réglage de taille |
 | 6b | Vente : réglage de la taille des boutons (petit / moyen / grand) | ★ | à faire |
 | 7 | Comptage de caisse (onglet Caisse, rapprochement avec le rapport) | ★★★ | ✅ |
-| 8 | Sync multi-tablettes même utilisateur | ★★★★★ | partiel : même appareil seulement |
+| 8 | Sync multi-tablettes même utilisateur | ★★★★★ | ✅ Supabase auth + Postgres + Realtime + outbox hors-ligne (`specs/2026-10-17-supabase-auth-sync-design.md`) |
 
 ## Reste à faire
 

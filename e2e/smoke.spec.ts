@@ -1,50 +1,44 @@
 import { test, expect } from '@playwright/test';
+import { E2E_SKIP_REASON, cleanup, createCatalogAndEvent, hasE2eCredentials, login } from './helpers';
 
-test('happy path: create item, create event, sell, recap, validate, report', async ({ page, context }) => {
-  await context.clearCookies();
-  await page.addInitScript(() => localStorage.clear());
+test.skip(!hasE2eCredentials, E2E_SKIP_REASON);
 
-  await page.goto('/');
+test('happy path: login, catalog, event, sell, recap, validate, report', async ({ page }) => {
+  const label = `E2E ${Date.now()}`;
+  await login(page);
+  try {
+    await createCatalogAndEvent(page, label);
 
-  // Catalog tab → create item "Mug" at 5,00
-  await page.getByRole('button', { name: 'Catalogue' }).click();
-  await page.getByRole('button', { name: 'Nouvel article' }).click();
-  await page.getByLabel('Nom').fill('Mug');
-  await page.getByLabel('Prix (€)').fill('5,00');
-  await page.getByRole('button', { name: 'Valider' }).click();
-  await expect(page.getByText('Mug')).toBeVisible();
+    // Catalog tab → create item "Mug" at 5,00
+    await page.getByRole('button', { name: 'Catalogue' }).click();
+    await page.getByRole('button', { name: 'Nouvel article' }).click();
+    await page.getByLabel('Nom').fill('Mug');
+    await page.getByLabel('Prix (€)').fill('5,00');
+    await page.getByRole('button', { name: 'Valider' }).click();
+    await expect(page.getByText('Mug')).toBeVisible();
 
-  // Events tab → create event and select it as active
-  await page.getByRole('button', { name: 'Événements' }).click();
-  await page.getByRole('button', { name: 'Nouvel événement' }).click();
-  await page.getByLabel('Nom').fill('Bric-à-brac test');
-  await page.getByRole('button', { name: 'Créer' }).click();
-  await expect(page.getByText('Bric-à-brac test')).toBeVisible();
-  // Tap the event row to make it the active event
-  await page.getByRole('button', { name: /Bric-à-brac test/ }).first().click();
+    // Enable Mug in the active event
+    await page.getByRole('switch', { name: 'Activer Mug' }).click();
 
-  // Catalog tab → enable Mug in active event via its switch
-  await page.getByRole('button', { name: 'Catalogue' }).click();
-  await page.getByRole('switch', { name: 'Activer Mug' }).click();
+    // Sell tab → two Mugs, validate
+    await page.getByRole('button', { name: 'Vente' }).click();
+    await page.getByRole('button', { name: 'Mug', exact: true }).click();
+    await page.getByRole('button', { name: 'Mug', exact: true }).click();
+    await expect(page.getByText('10,00 €').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Valider' }).click();
 
-  // Sell tab → tap the Mug button twice, validate
-  await page.getByRole('button', { name: 'Vente' }).click();
-  await page.getByRole('button', { name: 'Mug', exact: true }).click();
-  await page.getByRole('button', { name: 'Mug', exact: true }).click();
-  await expect(page.getByText('10,00 €')).toBeVisible();
-  await page.getByRole('button', { name: 'Valider' }).click();
+    // Recap → pay
+    await expect(page.getByText('Récapitulatif')).toBeVisible();
+    await page.getByRole('button', { name: 'Encaisser' }).click();
+    await page.getByLabel('Montant reçu (optionnel)').fill('20,00');
+    await expect(page.getByText('À rendre :')).toBeVisible();
+    await page.getByRole('button', { name: 'Confirmer' }).click();
 
-  // Recap step → confirm with the customer, then go to payment
-  await expect(page.getByText('Récapitulatif')).toBeVisible();
-  await page.getByRole('button', { name: 'Encaisser' }).click();
-
-  // Payment → enter cash, confirm
-  await page.getByLabel('Montant reçu (optionnel)').fill('20,00');
-  await expect(page.getByText('À rendre :')).toBeVisible();
-  await page.getByRole('button', { name: 'Confirmer' }).click();
-
-  // Report tab → verify total
-  await page.getByRole('button', { name: 'Rapport' }).click();
-  await expect(page.getByText('10,00 €').first()).toBeVisible();
-  await expect(page.getByText('1 vente(s)')).toBeVisible();
+    // Report: total and a single seller section
+    await page.getByRole('button', { name: 'Rapport' }).click();
+    await expect(page.getByText('10,00 €').first()).toBeVisible();
+    await expect(page.getByText(/1 vente\(s\) · 10,00 €/)).toHaveCount(1);
+  } finally {
+    await cleanup(page, label);
+  }
 });
