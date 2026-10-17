@@ -6,6 +6,7 @@ import { ListSection, Row } from '../components/ui/ListSection';
 import { Button } from '../components/ui/Button';
 import { Toggle } from '../components/ui/Toggle';
 import { PlusIcon } from '../components/ui/icons';
+import { uuid } from '../lib/uuid';
 import { formatCents, parseAmount } from '../lib/money';
 import { CATEGORY_COLORS, tint } from '../lib/colors';
 import { ITEM_ICONS } from '../lib/icons';
@@ -164,7 +165,8 @@ function EditModal({ editing, onClose }: { editing: Editing; onClose: () => void
 }
 
 function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; onClose: () => void }) {
-  const { dispatchCatalog, categories } = useApp();
+  const { dispatchCatalog, categories, activeEvent } = useApp();
+  const catalogId = activeEvent?.catalogId ?? 'local';
   const initialName = editing.mode === 'edit' ? editing.item.name : '';
   const initialPrice = editing.mode === 'edit' ? (editing.item.price / 100).toString().replace('.', ',') : '';
   const [name, setName] = useState(initialName);
@@ -181,7 +183,7 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
     const cents = parseAmount(priceText);
     if (cents === null || cents < 0) return setError('Le prix est invalide.');
     if (editing.mode === 'create') {
-      dispatchCatalog({ type: 'add', name: trimmed, price: cents, icon, categoryId });
+      dispatchCatalog({ type: 'add', id: uuid(), catalogId, name: trimmed, price: cents, icon, categoryId });
     } else {
       dispatchCatalog({ type: 'edit', id: editing.item.id, name: trimmed, price: cents, icon, categoryId });
     }
@@ -310,7 +312,8 @@ function CategoryModal({ catEditing, onClose }: { catEditing: CatEditing; onClos
 }
 
 function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<CatEditing>; onClose: () => void }) {
-  const { dispatchCategories, dispatchCatalog } = useApp();
+  const { dispatchCategories, dispatchCatalog, activeEvent } = useApp();
+  const catalogId = activeEvent?.catalogId ?? 'local';
   const [name, setName] = useState(catEditing.mode === 'edit' ? catEditing.category.name : '');
   const [color, setColor] = useState(catEditing.mode === 'edit' ? catEditing.category.color : CATEGORY_COLORS[0]);
   const [error, setError] = useState<string | null>(null);
@@ -319,7 +322,7 @@ function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<C
     const trimmed = name.trim();
     if (trimmed === '') return setError('Le nom est obligatoire.');
     if (catEditing.mode === 'create') {
-      dispatchCategories({ type: 'add', name: trimmed, color });
+      dispatchCategories({ type: 'add', id: uuid(), catalogId, name: trimmed, color });
     } else {
       dispatchCategories({ type: 'edit', id: catEditing.category.id, name: trimmed, color });
     }

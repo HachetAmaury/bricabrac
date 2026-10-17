@@ -20,11 +20,14 @@ import { CashView } from './CashView';
 
 const baseEvent: SaleEvent = {
   id: 'e1',
+  catalogId: 'c1',
   name: 'Bric-à-brac',
   kind: 'bric-a-brac',
   createdAt: 1,
   enabledItemIds: [],
   sales: [],
+  locked: false,
+  lockedAt: null,
   cashFloat: 25000,
   cashCount: { '20000': 1 }
 };
@@ -64,7 +67,7 @@ afterEach(() => {
 
 describe('CashView — locked event is read-only', () => {
   it('disables the fond-de-caisse input and steppers when locked', () => {
-    h.event = { ...baseEvent, locked: true };
+    h.event = { ...baseEvent, locked: true, lockedAt: 99 };
     render();
 
     expect(floatInput().disabled).toBe(true);
@@ -78,13 +81,13 @@ describe('CashView — locked event is read-only', () => {
   });
 
   it('shows the locked banner when locked', () => {
-    h.event = { ...baseEvent, locked: true };
+    h.event = { ...baseEvent, locked: true, lockedAt: 99 };
     render();
     expect(container.textContent).toContain('Événement verrouillé');
   });
 
   it('does not dispatch a cash mutation when the locked "Enregistrer" is clicked', () => {
-    h.event = { ...baseEvent, locked: true };
+    h.event = { ...baseEvent, locked: true, lockedAt: 99 };
     render();
     act(() => buttonByText('Enregistrer').click());
     expect(h.dispatchEvents).not.toHaveBeenCalled();

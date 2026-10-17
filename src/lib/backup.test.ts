@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { parseBackup } from './backup';
 import type { Item, Category, SaleEvent } from '../types';
 
-const catalog: Item[] = [{ id: 'i1', name: 'Mug', price: 500, archived: false }];
-const categories: Category[] = [{ id: 'c1', name: 'Boissons', color: '#ef4444' }];
+const catalog: Item[] = [{ id: 'i1', name: 'Mug', price: 500, archived: false }] as unknown as Item[]; // legacy export: no catalogId
+const categories: Category[] = [{ id: 'c1', name: 'Boissons', color: '#ef4444' }] as unknown as Category[];
 const events: SaleEvent[] = [
   { id: 'e1', name: 'Démo', kind: 'autre', createdAt: 1, enabledItemIds: ['i1'], sales: [] }
-];
+] as unknown as SaleEvent[]; // legacy export: no catalogId/lockedAt
 
 function exportText(extra: Record<string, unknown> = {}): string {
   return JSON.stringify({

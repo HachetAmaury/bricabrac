@@ -1,24 +1,32 @@
-import { uuid } from '../lib/uuid';
 import { sumLines } from '../lib/money';
 import type { SaleEvent, EventKind, CartLine, Item, SaleLine, Sale, CashCount } from '../types';
 
 export type EventsAction =
-  | { type: 'create'; name: string; kind: EventKind; enabledItemIds: string[] }
+  | { type: 'create'; id: string; catalogId: string; name: string; kind: EventKind; enabledItemIds: string[] }
   | { type: 'rename'; id: string; name: string }
   | { type: 'delete'; id: string }
   | { type: 'toggleItem'; eventId: string; itemId: string }
   | {
       type: 'recordSale';
       eventId: string;
+      saleId: string;
+      sellerId: string;
       cart: CartLine[];
       catalog: Item[];
       cashGiven?: number;
       now: number;
     }
-  | { type: 'undoLast'; eventId: string }
-  | { type: 'setLocked'; id: string; locked: boolean }
+  | { type: 'undoMyLast'; eventId: string; sellerId: string }
+  | { type: 'setLocked'; id: string; lockedAt: number | null }
   | { type: 'setCashFloat'; id: string; cashFloat: number }
   | { type: 'setCashCount'; id: string; cashCount: CashCount }
+  // Server-origin actions (Realtime): they bypass the lock guard because the
+  // server already enforced it.
+  | { type: 'upsertEvent'; event: Omit<SaleEvent, 'sales'> }
+  | { type: 'removeEvent'; id: string }
+  | { type: 'upsertSale'; eventId: string; sale: Sale }
+  | { type: 'removeSale'; eventId: string; saleId: string }
+  | { type: 'setEnabledItems'; eventId: string; itemIds: string[] }
   | { type: 'hydrate'; events: SaleEvent[] };
 
 function mapEvent(state: SaleEvent[], id: string, fn: (e: SaleEvent) => SaleEvent): SaleEvent[] {
@@ -42,12 +50,15 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
       return [
         ...state,
         {
-          id: uuid(),
+          id: action.id,
+          catalogId: action.catalogId,
           name: action.name,
           kind: action.kind,
           createdAt: Date.now(),
           enabledItemIds: [...action.enabledItemIds],
-          sales: []
+          sales: [],
+          locked: false,
+          lockedAt: null
         }
       ];
     case 'rename':
@@ -78,7 +89,8 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
           .filter((x): x is SaleLine => x !== null);
         const total = sumLines(lines);
         const sale: Sale = {
-          id: uuid(),
+          id: action.saleId,
+          sellerId: action.sellerId,
           timestamp: action.now,
           lines,
           total,
@@ -87,23 +99,57 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
         };
         return { ...e, sales: [...e.sales, sale] };
       });
-    case 'undoLast': {
+    case 'undoMyLast': {
       const idx = state.findIndex((e) => e.id === action.eventId);
       if (idx < 0) return state;
       if (state[idx].locked) return state; // can't remove sales from a locked event
-      if (state[idx].sales.length === 0) return state;
+      const sales = state[idx].sales;
+      let last = -1;
+      for (let i = sales.length - 1; i >= 0; i--) {
+        if (sales[i].sellerId === action.sellerId) { last = i; break; }
+      }
+      if (last < 0) return state;
       const next = state.slice();
-      next[idx] = { ...next[idx], sales: next[idx].sales.slice(0, -1) };
+      next[idx] = { ...next[idx], sales: sales.filter((_, i) => i !== last) };
       return next;
     }
     case 'setLocked':
-      return mapEvent(state, action.id, (e) => ({ ...e, locked: action.locked }));
+      return mapEvent(state, action.id, (e) => ({
+        ...e,
+        lockedAt: action.lockedAt,
+        locked: action.lockedAt !== null
+      }));
     case 'setCashFloat':
       if (isLocked(state, action.id)) return state; // cash is frozen when locked
       return mapEvent(state, action.id, (e) => ({ ...e, cashFloat: action.cashFloat }));
     case 'setCashCount':
       if (isLocked(state, action.id)) return state; // cash is frozen when locked
       return mapEvent(state, action.id, (e) => ({ ...e, cashCount: action.cashCount }));
+    case 'upsertEvent': {
+      const incoming = { ...action.event, locked: action.event.lockedAt !== null };
+      const idx = state.findIndex((e) => e.id === incoming.id);
+      if (idx < 0) return [...state, { ...incoming, sales: [] }];
+      const next = state.slice();
+      next[idx] = { ...incoming, sales: next[idx].sales };
+      return next;
+    }
+    case 'removeEvent':
+      return state.filter((e) => e.id !== action.id);
+    case 'upsertSale':
+      return mapEvent(state, action.eventId, (e) => {
+        const i = e.sales.findIndex((s) => s.id === action.sale.id);
+        if (i < 0) return { ...e, sales: [...e.sales, action.sale] };
+        const sales = e.sales.slice();
+        sales[i] = action.sale;
+        return { ...e, sales };
+      });
+    case 'removeSale':
+      return mapEvent(state, action.eventId, (e) => ({
+        ...e,
+        sales: e.sales.filter((s) => s.id !== action.saleId)
+      }));
+    case 'setEnabledItems':
+      return mapEvent(state, action.eventId, (e) => ({ ...e, enabledItemIds: [...action.itemIds] }));
     case 'hydrate':
       return action.events;
   }

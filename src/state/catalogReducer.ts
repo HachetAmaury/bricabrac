@@ -1,12 +1,13 @@
-import { uuid } from '../lib/uuid';
 import type { Item } from '../types';
 
 export type CatalogAction =
-  | { type: 'add'; name: string; price: number; icon?: string; categoryId?: string | null }
+  | { type: 'add'; id: string; catalogId: string; name: string; price: number; icon?: string; categoryId?: string | null }
   | { type: 'edit'; id: string; name: string; price: number; icon?: string; categoryId?: string | null }
   | { type: 'archive'; id: string }
   | { type: 'restore'; id: string }
   | { type: 'clearCategory'; categoryId: string }
+  | { type: 'upsert'; item: Item }
+  | { type: 'remove'; id: string }
   | { type: 'hydrate'; items: Item[] };
 
 export function catalogReducer(state: Item[], action: CatalogAction): Item[] {
@@ -15,7 +16,8 @@ export function catalogReducer(state: Item[], action: CatalogAction): Item[] {
       return [
         ...state,
         {
-          id: uuid(),
+          id: action.id,
+          catalogId: action.catalogId,
           name: action.name,
           price: action.price,
           archived: false,
@@ -52,6 +54,15 @@ export function catalogReducer(state: Item[], action: CatalogAction): Item[] {
     }
     case 'clearCategory':
       return state.map((i) => (i.categoryId === action.categoryId ? { ...i, categoryId: null } : i));
+    case 'upsert': {
+      const idx = state.findIndex((i) => i.id === action.item.id);
+      if (idx < 0) return [...state, action.item];
+      const next = state.slice();
+      next[idx] = action.item;
+      return next;
+    }
+    case 'remove':
+      return state.filter((i) => i.id !== action.id);
     case 'hydrate':
       return action.items;
   }

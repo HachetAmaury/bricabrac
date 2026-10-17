@@ -5,6 +5,7 @@ import { NavBar, NavIconButton } from '../components/ui/NavBar';
 import { ListSection, Row } from '../components/ui/ListSection';
 import { Button } from '../components/ui/Button';
 import { PlusIcon, CheckIcon, LockIcon, LockOpenIcon, PencilIcon, TrashIcon } from '../components/ui/icons';
+import { uuid } from '../lib/uuid';
 import { formatCents } from '../lib/money';
 import type { EventKind, SaleEvent } from '../types';
 
@@ -58,7 +59,7 @@ export function EventsView() {
                   size="sm"
                   variant="gray"
                   leftIcon={e.locked ? <LockOpenIcon size={16} /> : <LockIcon size={16} />}
-                  onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, locked: !e.locked })}
+                  onClick={() => dispatchEvents({ type: 'setLocked', id: e.id, lockedAt: e.locked ? null : Date.now() })}
                 >
                   {e.locked ? 'Déverrouiller' : 'Verrouiller'}
                 </Button>
@@ -95,6 +96,8 @@ export function EventsView() {
         onCreate={(name, kind, copy) => {
           dispatchEvents({
             type: 'create',
+            id: uuid(),
+            catalogId: activeEvent?.catalogId ?? 'local',
             name,
             kind,
             enabledItemIds: copy && activeEvent ? [...activeEvent.enabledItemIds] : []

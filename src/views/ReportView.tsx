@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../state/AuthContext';
 import { NavBar } from '../components/ui/NavBar';
 import { ListSection, Row } from '../components/ui/ListSection';
 import { LockIcon } from '../components/ui/icons';
@@ -7,6 +8,7 @@ import { formatCents } from '../lib/money';
 
 export function ReportView() {
   const { activeEvent, dispatchEvents } = useApp();
+  const { profile } = useAuth();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const perItem = useMemo(() => {
@@ -120,7 +122,7 @@ export function ReportView() {
                         onClick={(ev) => {
                           ev.stopPropagation();
                           if (confirm('Annuler la dernière vente ?')) {
-                            dispatchEvents({ type: 'undoLast', eventId: activeEvent.id });
+                            dispatchEvents({ type: 'undoMyLast', eventId: activeEvent.id, sellerId: profile?.id ?? 'local' });
                           }
                         }}
                         style={{ color: 'var(--ios-red)', fontWeight: 500 }}

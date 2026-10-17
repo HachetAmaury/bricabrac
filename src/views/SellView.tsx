@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../state/AuthContext';
+import { uuid } from '../lib/uuid';
 import { ValidateModal } from '../components/ValidateModal';
 import { RecapModal } from '../components/RecapModal';
 import { NavBar } from '../components/ui/NavBar';
@@ -15,6 +17,7 @@ const UNCATEGORIZED = '__none__';
 
 export function SellView() {
   const { catalog, categories, activeEvent, cart, dispatchCart, dispatchEvents } = useApp();
+  const { profile } = useAuth();
   const [step, setStep] = useState<Step>('idle');
 
   const locked = activeEvent?.locked ?? false;
@@ -270,6 +273,8 @@ export function SellView() {
           dispatchEvents({
             type: 'recordSale',
             eventId: activeEvent.id,
+            saleId: uuid(),
+            sellerId: profile?.id ?? 'local',
             cart,
             catalog,
             cashGiven,

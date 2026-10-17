@@ -1,11 +1,15 @@
+export type Catalog = { id: string; name: string };
+
 export type Category = {
   id: string;
+  catalogId: string;
   name: string;
   color: string; // hex, e.g. '#ef4444'
 };
 
 export type Item = {
   id: string;
+  catalogId: string;
   name: string;
   price: number;
   archived: boolean;
@@ -27,6 +31,7 @@ export type SaleLine = {
 export type Sale = {
   id: string;
   timestamp: number;
+  sellerId: string;
   lines: SaleLine[];
   total: number;
   cashGiven?: number;
@@ -38,12 +43,14 @@ export type CashCount = Record<string, number>;
 
 export type SaleEvent = {
   id: string;
+  catalogId: string;
   name: string;
   kind: EventKind;
   createdAt: number;
   enabledItemIds: string[];
   sales: Sale[];
-  locked?: boolean; // when true, no new sales can be recorded
+  locked: boolean; // when true, no new sales can be recorded; always equals (lockedAt !== null)
+  lockedAt: number | null;
   cashFloat?: number; // fond de caisse in cents (starting cash)
   cashCount?: CashCount; // end-of-day cash count
 };
