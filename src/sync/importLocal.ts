@@ -66,15 +66,15 @@ export function buildImport(legacy: Backup, opts: ImportOpts): ImportRows {
     if (e.locked) locks.push({ id, locked_at: new Date(e.createdAt).toISOString() });
     const ev: SaleEvent = { ...e, id, catalogId: opts.catalogId, lockedAt: null, locked: false };
     eventRows.push(eventToRow(ev));
-    for (const itemId of new Set(e.enabledItemIds.map(remap))) {
+    for (const itemId of new Set((e.enabledItemIds ?? []).map(remap))) {
       if (itemIds.has(itemId)) eventItems.push({ event_id: id, item_id: itemId });
     }
-    for (const s of e.sales) {
+    for (const s of e.sales ?? []) {
       const sale: Sale = {
         ...s,
         id: remap(s.id),
         sellerId: opts.sellerId,
-        lines: s.lines.map((l) => ({ ...l, itemId: remap(l.itemId) })),
+        lines: (s.lines ?? []).map((l) => ({ ...l, itemId: remap(l.itemId) })),
       };
       sales.push(saleToRow(sale, id));
     }

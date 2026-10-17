@@ -77,6 +77,19 @@ describe('buildImport', () => {
     expect(out.locks).toEqual([]);
   });
 
+  it('tolerates events missing sales, enabledItemIds or lines', () => {
+    const l = legacy();
+    const ev = (l as { events: Record<string, unknown>[] }).events;
+    delete ev[0].sales;
+    delete ev[0].enabledItemIds;
+    ev.push({ id: 'ev-2', name: 'B', kind: 'autre', createdAt: 1, locked: false, enabledItemIds: [], sales: [{ id: 's', timestamp: 1, total: 0 }] });
+    const out = buildImport(l, opts);
+    expect(out.events).toHaveLength(2);
+    expect(out.eventItems).toEqual([]);
+    expect(out.sales).toHaveLength(1);
+    expect(out.sales[0].lines).toEqual([]);
+  });
+
   it('drops enabledItemIds that point at unknown items', () => {
     const out = buildImport(legacy({ enabledItemIds: ['eau-cafe', 'ghost'] }), opts);
     expect(out.eventItems).toHaveLength(1);
