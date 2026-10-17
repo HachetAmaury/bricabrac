@@ -191,6 +191,7 @@ end $$;
 -- Case 10: event_items must use items of the event's catalog
 -- (e2 is unlocked, catalog c1).
 do $$
+declare n int;
 begin
   insert into public.event_items (event_id, item_id)
   values ('00000000-0000-4000-a000-0000000000e2', '00000000-0000-4000-a000-0000000000b1');
@@ -201,7 +202,12 @@ begin
   exception when check_violation then
     null; -- expected: guard_event_items
   end;
-  raise notice 'ok 10 (same-catalog item added, foreign-catalog item rejected)';
+  -- event_items are immutable: UPDATE matches no row (no update policy).
+  update public.event_items set event_id = '00000000-0000-4000-a000-0000000000e1'
+  where event_id = '00000000-0000-4000-a000-0000000000e2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL 10: member updated % event_items rows', n; end if;
+  raise notice 'ok 10 (same-catalog item added, foreign-catalog item rejected, update affects 0 rows)';
 end $$;
 
 -- Case 11: a locked event is frozen (e1 was locked in case 3).
@@ -293,7 +299,16 @@ begin
   if n <> 0 then raise exception 'FAIL 9: disabled member sees % catalogs', n; end if;
   select count(*) into n from public.profiles where id <> auth.uid();
   if n <> 0 then raise exception 'FAIL 9: disabled member sees % other profiles', n; end if;
-  raise notice 'ok 9 (disabled member sees 0 events, sales, catalogs, other profiles)';
+  select count(*) into n from public.event_members;
+  if n <> 0 then raise exception 'FAIL 9: disabled member sees % memberships', n; end if;
+  -- e1 was unlocked in case 11, so only the active check can block this.
+  delete from public.sales where id = '00000000-0000-4000-a000-0000000000a2';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL 9: disabled member deleted % of its own sales', n; end if;
+  update public.profiles set display_name = 'still here' where id = auth.uid();
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL 9: disabled member updated its own profile'; end if;
+  raise notice 'ok 9 (disabled member: 0 events, sales, catalogs, other profiles, memberships; cannot delete own sale or edit profile)';
 end $$;
 
 reset role;
