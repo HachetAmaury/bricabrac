@@ -18,8 +18,8 @@ const UNCATEGORIZED = '__none__';
 
 export function SellView() {
   const { catalog, categories, activeEvent, cart, dispatchCart, dispatchEvents } = useApp();
-  // The session user id is the seller id (profile may be unknown offline).
-  const sellerId = useAuth().session?.user.id ?? null;
+  // The signed-in user id is the seller id (profile may be unknown offline).
+  const sellerId = useAuth().userId;
   const [step, setStep] = useState<Step>('idle');
 
   const locked = activeEvent?.locked ?? false;

@@ -87,8 +87,7 @@ function lastSaleIdOf(events: SaleEvent[], eventId: string, sellerId: string): s
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { session } = useAuth();
-  const userId = session?.user.id ?? null;
+  const { userId } = useAuth();
 
   // Initial state comes from the last server snapshot so the app renders
   // instantly (and offline); the mount effect below replaces it.

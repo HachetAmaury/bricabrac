@@ -71,7 +71,7 @@ export function RejectedSalesDialog() {
 function Shell() {
   const [tab, setTab] = useState<TabId>('events');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { session, profile } = useAuth();
+  const { userId, profile } = useAuth();
   const { refresh } = useApp();
   // Decided once per sign-in (Shell is remounted per user): later writes to the
   // legacy keys never re-trigger the prompt.
@@ -95,7 +95,7 @@ function Shell() {
     await runImport(supabase, data, {
       catalogId: uuid(),
       catalogName: 'Catalogue importé',
-      sellerId: session!.user.id
+      sellerId: userId!
     });
     // Keys are already cleared: a refresh failure must not surface as an import error.
     await refresh().catch(() => {});
@@ -149,14 +149,14 @@ function Shell() {
 }
 
 function Gate() {
-  const { status, session } = useAuth();
+  const { status, userId } = useAuth();
   if (status === 'loading') {
     return <p style={{ textAlign: 'center', marginTop: '40vh' }}>Chargement…</p>;
   }
-  if (status === 'signedOut' || !session) return <LoginView />;
+  if (status === 'signedOut' || !userId) return <LoginView />;
   // Keyed by user so switching accounts never carries one account's state over.
   return (
-    <AppProvider key={session.user.id}>
+    <AppProvider key={userId}>
       <Shell />
     </AppProvider>
   );

@@ -10,8 +10,8 @@ import type { Sale } from '../types';
 
 export function ReportView() {
   const { activeEvent, profiles, dispatchEvents } = useApp();
-  // The session user id is the seller id (profile may be unknown offline).
-  const sellerId = useAuth().session?.user.id ?? null;
+  // The signed-in user id is the seller id (profile may be unknown offline).
+  const sellerId = useAuth().userId;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const perItem = useMemo(() => {

@@ -14,7 +14,7 @@ vi.mock('../state/AppContext', () => ({
   useApp: () => ({ activeEvent: h.event, profiles: h.profiles, dispatchEvents: h.dispatchEvents })
 }));
 vi.mock('../state/AuthContext', () => ({
-  useAuth: () => ({ session: { user: { id: 'me' } } })
+  useAuth: () => ({ session: { user: { id: 'me' } }, userId: 'me' })
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

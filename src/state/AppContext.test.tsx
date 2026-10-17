@@ -60,6 +60,7 @@ vi.mock('./AuthContext', () => ({
   useAuth: () => ({
     status: 'signedIn',
     session: { user: { id: 'u1' } },
+    userId: 'u1',
     profile: { id: 'u1', displayName: 'Nat', isAdmin: false, disabled: false },
     lastError: null,
     signIn: vi.fn(),
