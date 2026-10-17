@@ -7,10 +7,11 @@
 --   u_admin  00000000-0000-4000-a000-000000000001
 --   u_member 00000000-0000-4000-a000-000000000002
 --   u_other  00000000-0000-4000-a000-000000000003
+--   u_mate   00000000-0000-4000-a000-000000000004 (member of e1 with u_member)
 --   catalogs 00000000-0000-4000-a000-0000000000c1, c2 (c3 created by admin)
---   events   00000000-0000-4000-a000-0000000000e1 (e2 created by member)
+--   events   00000000-0000-4000-a000-0000000000e1 (e2 created by member; e3, e4 must be rejected)
 --   items    00000000-0000-4000-a000-0000000000b1 (catalog c1), b2 (catalog c2)
---   sales    00000000-0000-4000-a000-0000000000a1..a5
+--   sales    00000000-0000-4000-a000-0000000000a1..a6 (a3, a5, a6 must be rejected)
 
 begin;
 
@@ -24,7 +25,9 @@ values
   ('00000000-0000-4000-a000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'rls-member@test.invalid', '{"display_name":"Member"}', '{}', now(), now()),
   ('00000000-0000-4000-a000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-   'rls-other@test.invalid', '{"display_name":"Other","is_admin":true}', '{}', now(), now());
+   'rls-other@test.invalid', '{"display_name":"Other","is_admin":true}', '{}', now(), now()),
+  ('00000000-0000-4000-a000-000000000004', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+   'rls-mate@test.invalid', '{"display_name":"Mate"}', '{}', now(), now());
 
 do $$
 begin
@@ -50,7 +53,8 @@ insert into public.events (id, catalog_id, name, kind, created_by)
 values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000c1', 'RLS event', 'autre',
         '00000000-0000-4000-a000-000000000001');
 insert into public.event_members (event_id, user_id)
-values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-000000000002');
+values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-000000000002'),
+       ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-000000000004');
 
 -- ------------------------------------------------------------ as authenticated
 set local role authenticated;
@@ -78,6 +82,21 @@ end $$;
 -- From here on: u_member.
 set local request.jwt.claim.sub = '00000000-0000-4000-a000-000000000002';
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-a000-000000000002","role":"authenticated"}';
+
+-- Case 1b: u_member sees the profile of its event mate, not of u_other.
+do $$
+declare n int;
+begin
+  select count(*) into n from public.profiles where id <> auth.uid();
+  if n <> 1 then raise exception 'FAIL 1b: u_member sees % other profiles, expected 1', n; end if;
+  if not exists (select 1 from public.profiles where id = '00000000-0000-4000-a000-000000000004') then
+    raise exception 'FAIL 1b: u_member cannot see u_mate';
+  end if;
+  if exists (select 1 from public.profiles where id = '00000000-0000-4000-a000-000000000003') then
+    raise exception 'FAIL 1b: u_member can see u_other';
+  end if;
+  raise notice 'ok 1b (u_member sees u_mate only)';
+end $$;
 
 -- Case 2: own seller_id ok, someone else's seller_id rejected.
 do $$
@@ -251,8 +270,12 @@ begin
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'FAIL 11: member could not unlock the event'; end if;
   update public.events set cash_float = 5000 where id = '00000000-0000-4000-a000-0000000000e1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 11: cash_float not editable after unlock'; end if;
   insert into public.event_items (event_id, item_id)
   values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000b1');
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 11: item list not editable after unlock'; end if;
   raise notice 'ok 11 (locked: item list and cash frozen, rename ok; unlock ok, then editable)';
 end $$;
 
@@ -308,7 +331,39 @@ begin
   update public.profiles set display_name = 'still here' where id = auth.uid();
   get diagnostics n = row_count;
   if n <> 0 then raise exception 'FAIL 9: disabled member updated its own profile'; end if;
-  raise notice 'ok 9 (disabled member: 0 events, sales, catalogs, other profiles, memberships; cannot delete own sale or edit profile)';
+  begin
+    insert into public.sales (id, event_id, seller_id, "timestamp", lines, total)
+    values ('00000000-0000-4000-a000-0000000000a6', '00000000-0000-4000-a000-0000000000e1',
+            '00000000-0000-4000-a000-000000000002', (extract(epoch from now()) * 1000)::bigint, '[]', 600);
+    raise exception 'FAIL 9: disabled member inserted a sale';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    insert into public.events (id, catalog_id, name, kind)
+    values ('00000000-0000-4000-a000-0000000000e4', '00000000-0000-4000-a000-0000000000c1', 'disabled', 'autre');
+    raise exception 'FAIL 9: disabled member inserted an event';
+  exception when insufficient_privilege then
+    null;
+  end;
+  raise notice 'ok 9 (disabled member: 0 events, sales, catalogs, other profiles, memberships; cannot delete own sale, edit profile, insert sale or event)';
+end $$;
+
+-- Case 12: a disabled admin loses admin rights and all access.
+reset role;
+update public.profiles set disabled = true where id = '00000000-0000-4000-a000-000000000001';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-a000-000000000001';
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-a000-000000000001","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  if public.is_admin() then raise exception 'FAIL 12: disabled admin is still admin'; end if;
+  select count(*) into n from public.events;
+  if n <> 0 then raise exception 'FAIL 12: disabled admin sees % events', n; end if;
+  select count(*) into n from public.catalogs;
+  if n <> 0 then raise exception 'FAIL 12: disabled admin sees % catalogs', n; end if;
+  raise notice 'ok 12 (disabled admin: not admin, 0 events, 0 catalogs)';
 end $$;
 
 reset role;

@@ -1,3 +1,16 @@
+-- NOTE: later migrations supersede parts of this file; read them together.
+--   20261017000001_hardening:
+--     handle_new_user (is_admin from raw_app_meta_data), is_event_member,
+--     can_access_catalog, shares_event_with (now require is_active());
+--     adds is_active(), protect_event_ownership trigger, profiles_update_admin;
+--     replaces events_insert, catalogs_insert (created_by = auth.uid()).
+--   20261017000002_lock_freeze:
+--     protect_event_ownership (locked cash freeze); adds guard_event_items.
+--   20261017000003_active_checks:
+--     replaces sales_delete, profiles_update_own, event_members_select.
+--   20261017000004_event_items_no_update:
+--     replaces event_items_all with event_items_select/insert/delete.
+--
 -- Initial schema for the flea-market POS: tables, RLS, helpers, realtime.
 -- All ids are client-generated UUIDs (except profiles.id = auth.users.id).
 -- Money columns are integer cents.
