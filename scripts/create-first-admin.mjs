@@ -33,4 +33,15 @@ if (error) {
   console.error(`Failed to create admin: ${error.message}`)
   process.exit(1)
 }
-console.log(`Admin created: ${data.user.id}`)
+const userId = data.user.id
+
+// The profiles trigger may not see app_metadata at insert time: set the flag explicitly.
+const { error: profileError } = await supabase
+  .from('profiles')
+  .update({ is_admin: true, display_name: displayName })
+  .eq('id', userId)
+if (profileError) {
+  console.error(`User ${userId} created, but setting profiles.is_admin failed: ${profileError.message}`)
+  process.exit(1)
+}
+console.log(`Admin created: ${userId}`)

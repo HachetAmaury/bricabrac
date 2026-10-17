@@ -78,8 +78,14 @@ Deno.serve(async (req) => {
           user_metadata: { display_name: displayName.trim() },
           app_metadata: { is_admin: isAdmin },
         });
-        if (error) return fail(400, error.message);
-        return json(200, { ok: true, userId: data.user?.id });
+        if (error || !data.user) return fail(400, error?.message ?? INVALID);
+        // The profiles trigger may not see app_metadata at insert time: set the flags explicitly.
+        const { error: pError } = await admin
+          .from('profiles')
+          .update({ is_admin: isAdmin, display_name: displayName.trim() })
+          .eq('id', data.user.id);
+        if (pError) return fail(400, pError.message);
+        return json(200, { ok: true, userId: data.user.id });
       }
 
       case 'update': {

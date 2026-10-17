@@ -21,6 +21,14 @@ SUPABASE_SERVICE_ROLE_KEY=<clé service_role>
 npm run admin:create -- <email> <mot de passe> "<nom>"
 ```
 
+Vérifiez ensuite que le compte est bien administrateur (SQL Editor du tableau de bord, ou MCP `execute_sql`) :
+
+```
+select id, display_name, is_admin from profiles;
+```
+
+La ligne du compte créé doit avoir `is_admin = true`. Sinon, ne continuez pas : corrigez avec `update profiles set is_admin = true where id = '<id>';`.
+
 Les comptes suivants se créent depuis l'écran Administration de l'application.
 
 ## Réglages du tableau de bord Supabase
