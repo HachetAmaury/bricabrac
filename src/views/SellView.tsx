@@ -4,6 +4,7 @@ import { useAuth } from '../state/AuthContext';
 import { uuid } from '../lib/uuid';
 import { ValidateModal } from '../components/ValidateModal';
 import { RecapModal } from '../components/RecapModal';
+import { SyncBanner } from '../components/SyncBanner';
 import { NavBar } from '../components/ui/NavBar';
 import { Button } from '../components/ui/Button';
 import { LockIcon } from '../components/ui/icons';
@@ -57,6 +58,7 @@ export function SellView() {
     return (
       <div>
         <NavBar title="Vente" />
+        <SyncBanner />
         <p style={{ padding: '0 16px', color: 'var(--label-secondary)' }}>
           Aucun événement actif. Créez ou sélectionnez un événement pour commencer.
         </p>
@@ -82,6 +84,7 @@ export function SellView() {
           </span>
         }
       />
+      <SyncBanner />
 
       <div style={{ padding: '0 16px' }}>
         {locked && (

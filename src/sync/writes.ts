@@ -5,6 +5,8 @@ import type { CatalogAction } from '../state/catalogReducer';
 import type { CategoriesAction } from '../state/categoriesReducer';
 import type { EventsAction } from '../state/eventsReducer';
 import { categoryToRow, eventToRow, itemToRow, saleToRow } from './mappers';
+import { OutboxOfflineError, type Outbox } from './outbox';
+import { uuid } from '../lib/uuid';
 
 type Client = SupabaseClient<Database>;
 
@@ -61,14 +63,28 @@ function updateEvent(client: Client, id: string, patch: Partial<EventRow>): Prom
 }
 
 /**
+ * Sends the queue when the browser is online. Rejects with OutboxOfflineError
+ * when the server could not be reached (the ops stay queued); held or
+ * rejected ops resolve, since the server answered.
+ */
+async function flushOutbox(client: Client, outbox: Outbox, state: SaleEvent[]): Promise<void> {
+  if (!navigator.onLine) throw new OutboxOfflineError();
+  const res = await outbox.flush(client, { eventsById: new Map(state.map((e) => [e.id, e])) });
+  if (res.stoppedOnNetworkError) throw new OutboxOfflineError();
+}
+
+/**
  * `removedSaleId` is required for `undoMyLast`: the removed sale is gone from
- * `state`, so the caller computes it from the previous state.
+ * `state`, so the caller computes it from the previous state. With an
+ * `outbox`, sale writes are queued there (and survive being offline) instead
+ * of being sent directly.
  */
 export async function mirrorEvents(
   client: Client,
   a: EventsAction,
   state: SaleEvent[],
   removedSaleId?: string,
+  outbox?: Outbox,
 ): Promise<void> {
   switch (a.type) {
     case 'create': {
@@ -101,10 +117,18 @@ export async function mirrorEvents(
     case 'recordSale': {
       const sale = state.find((e) => e.id === a.eventId)?.sales.find((s) => s.id === a.saleId);
       if (!sale) return;
+      if (outbox) {
+        outbox.enqueue({ id: uuid(), version: 1, kind: 'insertSale', eventId: a.eventId, sale });
+        return flushOutbox(client, outbox, state);
+      }
       return run(client.from('sales').insert(saleToRow(sale, a.eventId)));
     }
     case 'undoMyLast':
       if (!removedSaleId) return;
+      if (outbox) {
+        outbox.enqueue({ id: uuid(), version: 1, kind: 'deleteSale', eventId: a.eventId, saleId: removedSaleId });
+        return flushOutbox(client, outbox, state);
+      }
       return run(client.from('sales').delete().eq('id', removedSaleId));
     case 'upsertEvent':
     case 'removeEvent':

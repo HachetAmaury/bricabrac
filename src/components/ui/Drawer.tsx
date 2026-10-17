@@ -5,6 +5,7 @@ import { parseBackup } from '../../lib/backup';
 import { withItemDefaults, withCategoryDefaults, withEventDefaults } from '../../state/normalize';
 import { ListSection, Row } from './ListSection';
 import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
+import { downloadJSON } from '../../lib/download';
 
 // Schema version stamped into exported backups (data format, not the build).
 const BACKUP_VERSION = '0.2.0';
@@ -22,13 +23,7 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
 
   const exportData = () => {
     const payload = { version: BACKUP_VERSION, exportedAt: new Date().toISOString(), catalog: allItems, categories: allCategories, events };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bricabrac-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJSON(payload, `bricabrac-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   const importData = async (file: File) => {

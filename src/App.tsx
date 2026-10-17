@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AppProvider } from './state/AppContext';
+import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
 import { LoginView } from './views/LoginView';
 import { TabBar, type TabId } from './components/TabBar';
@@ -10,6 +10,56 @@ import { EventsView } from './views/EventsView';
 import { ReportView } from './views/ReportView';
 import { SellView } from './views/SellView';
 import { CashView } from './views/CashView';
+import { Modal } from './components/Modal';
+import { Button } from './components/ui/Button';
+import { formatCents } from './lib/money';
+import { downloadJSON } from './lib/download';
+import type { RejectReason } from './sync/outbox';
+
+const REASONS: Record<RejectReason, string> = {
+  'event-deleted': 'événement supprimé',
+  'not-member': 'accès retiré',
+  disabled: 'compte désactivé',
+  'unknown-version': 'format inconnu',
+  'server-error': 'erreur serveur'
+};
+
+const time = (ms: number) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Sales the server refused for good. Stays open until OK: closing it by the
+ * backdrop would let a refused sale go unnoticed.
+ */
+export function RejectedSalesDialog() {
+  const { rejected, dismissRejected } = useApp();
+  const exportJSON = () =>
+    downloadJSON({ rejectedSales: rejected }, `ventes-non-synchronisees-${new Date().toISOString().slice(0, 10)}.json`);
+
+  return (
+    <Modal open={rejected.length > 0} onClose={() => {}} title="Ventes non synchronisées">
+      <ul style={{ listStyle: 'none', margin: '0 0 16px', padding: 0 }}>
+        {rejected.map((r, i) => (
+          <li
+            key={`${r.sale.id}-${i}`}
+            style={{ padding: '8px 0', borderBottom: '0.5px solid var(--separator-opaque)', fontSize: 16 }}
+          >
+            {r.kind === 'deleteSale'
+              ? `${time(r.rejectedAt)} · annulation · ${REASONS[r.reason]}`
+              : `${time(r.sale.timestamp)} · ${formatCents(r.sale.total)} · ${REASONS[r.reason]}`}
+          </li>
+        ))}
+      </ul>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <Button variant="gray" size="lg" onClick={exportJSON}>
+          Exporter en JSON
+        </Button>
+        <Button variant="filled" size="lg" onClick={dismissRejected}>
+          OK
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 function Shell() {
   const [tab, setTab] = useState<TabId>('events');
@@ -41,6 +91,7 @@ function Shell() {
         <TabBar active={tab} onSelect={setTab} />
       </div>
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <RejectedSalesDialog />
     </ChromeProvider>
   );
 }

@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../lib/supabase';
 import type { Category, Item, Sale, SaleEvent } from '../types';
 import { mirrorCatalog, mirrorCategories, mirrorEvents } from './writes';
+import { createOutbox, OutboxOfflineError } from './outbox';
+import type { EventsAction } from '../state/eventsReducer';
 
 type Call = { table: string; method: string; args: unknown[] };
 
@@ -239,6 +241,59 @@ describe('mirrorEvents', () => {
       { table: 'sales', method: 'delete', args: [] },
       { table: 'sales', method: 'eq', args: ['id', 's1'] },
     ]);
+  });
+
+  describe('with an outbox', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.restoreAllMocks());
+
+    const record: EventsAction = { type: 'recordSale', eventId: 'e1', saleId: 's1', sellerId: 'u1', cart: [], catalog: [], now: 1000 };
+
+    it('recordSale enqueues the sale and flushes it instead of inserting directly', async () => {
+      const outbox = createOutbox();
+      const enqueue = vi.spyOn(outbox, 'enqueue');
+      const { client, calls } = fakeClient();
+      await mirrorEvents(client, record, [event], undefined, outbox);
+      expect(enqueue).toHaveBeenCalledTimes(1);
+      expect(enqueue.mock.calls[0][0]).toEqual({
+        id: expect.any(String),
+        version: 1,
+        kind: 'insertSale',
+        eventId: 'e1',
+        sale,
+      });
+      // The flush sent it: same row as the direct path, and the queue is empty.
+      expect(calls).toEqual([{ table: 'sales', method: 'insert', args: [expect.objectContaining({ id: 's1', event_id: 'e1' })] }]);
+      expect(outbox.entries()).toEqual([]);
+    });
+
+    it('undoMyLast enqueues a deleteSale for the removed id', async () => {
+      const outbox = createOutbox();
+      const enqueue = vi.spyOn(outbox, 'enqueue');
+      const { client, calls } = fakeClient();
+      await mirrorEvents(client, { type: 'undoMyLast', eventId: 'e1', sellerId: 'u1' }, [{ ...event, sales: [] }], 's1', outbox);
+      expect(enqueue.mock.calls[0][0]).toEqual({ id: expect.any(String), version: 1, kind: 'deleteSale', eventId: 'e1', saleId: 's1' });
+      expect(calls).toEqual([
+        { table: 'sales', method: 'delete', args: [] },
+        { table: 'sales', method: 'eq', args: ['id', 's1'] },
+      ]);
+    });
+
+    it('offline: keeps the sale queued, does not call the client, and rejects with OutboxOfflineError', async () => {
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      const outbox = createOutbox();
+      const { client, from } = fakeClient();
+      await expect(mirrorEvents(client, record, [event], undefined, outbox)).rejects.toBeInstanceOf(OutboxOfflineError);
+      expect(from).not.toHaveBeenCalled();
+      expect(outbox.entries().map((e) => [e.kind, e.status])).toEqual([['insertSale', 'pending']]);
+    });
+
+    it('a network error during the flush keeps the sale queued and rejects with OutboxOfflineError', async () => {
+      const outbox = createOutbox();
+      const { client } = fakeClient({ message: 'TypeError: Failed to fetch', code: '' });
+      await expect(mirrorEvents(client, record, [event], undefined, outbox)).rejects.toBeInstanceOf(OutboxOfflineError);
+      expect(outbox.entries()).toHaveLength(1);
+    });
   });
 
   it('delete deletes the event by id', async () => {

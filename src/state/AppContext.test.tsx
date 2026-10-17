@@ -119,7 +119,7 @@ beforeEach(() => {
   h.channels.length = 0;
   h.fakeClient.channel.mockClear();
   h.fakeClient.removeChannel.mockClear();
-  h.fakeClient.from.mockClear();
+  h.fakeClient.from.mockReset();
   h.fetchAll.mockReset();
   h.mirrorCatalog.mockReset().mockResolvedValue(undefined);
   h.mirrorCategories.mockReset().mockResolvedValue(undefined);
@@ -186,7 +186,7 @@ describe('AppProvider', () => {
   it('passes the removed sale id for undoMyLast', async () => {
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
-    act(() => app.dispatchEvents({ type: 'undoMyLast', eventId: 'e1', sellerId: 'u1' }));
+    await act(async () => app.dispatchEvents({ type: 'undoMyLast', eventId: 'e1', sellerId: 'u1' }));
     expect(h.mirrorEvents).toHaveBeenCalledTimes(1);
     const [, , next, removed] = h.mirrorEvents.mock.calls[0];
     expect(removed).toBe('s1');
@@ -227,6 +227,80 @@ describe('AppProvider', () => {
     await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale 2' }));
     expect(app.syncStatus).toBe('online');
     err.mockRestore();
+  });
+});
+
+describe('AppProvider outbox', () => {
+  const pendingSale = { id: 's9', sellerId: 'u1', timestamp: 5, lines: [], total: 700 };
+  const seed = () =>
+    localStorage.setItem(
+      'sync:outbox:u1',
+      JSON.stringify([
+        { id: 'o1', version: 1, kind: 'insertSale', eventId: 'e1', sale: pendingSale, status: 'pending', attempts: 0 },
+      ]),
+    );
+  const inserts: unknown[] = [];
+  const serverReplies = (result: unknown) =>
+    h.fakeClient.from.mockImplementation(() => ({
+      insert: (row: unknown) => {
+        inserts.push(row);
+        return Promise.resolve(result);
+      },
+    }));
+  beforeEach(() => {
+    inserts.length = 0;
+  });
+
+  it('passes the outbox to mirrorEvents', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' }));
+    const outbox = h.mirrorEvents.mock.calls[0][4];
+    expect(typeof outbox.enqueue).toBe('function');
+    expect(typeof outbox.flush).toBe('function');
+  });
+
+  it('pending outbox sale survives a refresh() hydrate', async () => {
+    seed();
+    serverReplies({ error: { message: 'TypeError: Failed to fetch', code: '' } });
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's9']);
+    expect(app.outbox).toEqual({ pending: 1, held: 0, flushing: false });
+    // The first flush runs after the first hydrate (fresh events for classification).
+    expect(inserts).toEqual([expect.objectContaining({ id: 's9', event_id: 'e1' })]);
+
+    await act(async () => {
+      await app.refresh();
+    });
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    // Later refreshes flush first, then fetch.
+    expect(inserts).toHaveLength(2);
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's9']);
+    expect(JSON.parse(localStorage.getItem(KEYS.events)!)[0].sales.map((s: { id: string }) => s.id)).toEqual(['s1', 's9']);
+    expect(app.outbox.pending).toBe(1);
+  });
+
+  it('sends a pending sale once back online and clears the counter', async () => {
+    seed();
+    serverReplies({ error: null });
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(inserts).toHaveLength(1);
+    expect(app.outbox).toEqual({ pending: 0, held: 0, flushing: false });
+    expect(app.rejected).toEqual([]);
+  });
+
+  it('rolls back a rejected sale and lists it until dismissed', async () => {
+    seed();
+    serverReplies({ error: { status: 403, message: 'Forbidden' } });
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1']);
+    expect(app.rejected).toEqual([expect.objectContaining({ sale: pendingSale, eventId: 'e1', reason: 'disabled' })]);
+    expect(app.outbox.pending).toBe(0);
+    act(() => app.dismissRejected());
+    expect(app.rejected).toEqual([]);
   });
 });
 
