@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../state/AppContext';
+import { useAuth } from '../state/AuthContext';
 import { Modal } from '../components/Modal';
 import { NavBar, NavIconButton } from '../components/ui/NavBar';
 import { ListSection, Row } from '../components/ui/ListSection';
@@ -17,6 +18,8 @@ const KIND_LABELS: Record<EventKind, string> = {
 
 export function EventsView() {
   const { events, catalogs, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
+  // Deleting an event is admin-only (RLS would silently ignore a member's delete).
+  const isAdmin = useAuth().profile?.isAdmin === true;
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SaleEvent | null>(null);
 
@@ -66,22 +69,24 @@ export function EventsView() {
                 <Button size="sm" variant="gray" leftIcon={<PencilIcon size={16} />} onClick={() => setRenaming(e)}>
                   Renommer
                 </Button>
-                <Button
-                  size="sm"
-                  variant="plain"
-                  leftIcon={<TrashIcon size={16} />}
-                  disabled={e.locked}
-                  title={e.locked ? 'Déverrouillez l’événement pour le supprimer' : undefined}
-                  style={{ marginLeft: 'auto', color: e.locked ? 'var(--label-tertiary)' : 'var(--ios-red)' }}
-                  onClick={() => {
-                    if (e.locked) return;
-                    if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
-                      dispatchEvents({ type: 'delete', id: e.id });
-                    }
-                  }}
-                >
-                  Suppr.
-                </Button>
+                {isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="plain"
+                    leftIcon={<TrashIcon size={16} />}
+                    disabled={e.locked}
+                    title={e.locked ? 'Déverrouillez l’événement pour le supprimer' : undefined}
+                    style={{ marginLeft: 'auto', color: e.locked ? 'var(--label-tertiary)' : 'var(--ios-red)' }}
+                    onClick={() => {
+                      if (e.locked) return;
+                      if (confirm(`Supprimer "${e.name}" et toutes ses ventes ?`)) {
+                        dispatchEvents({ type: 'delete', id: e.id });
+                      }
+                    }}
+                  >
+                    Suppr.
+                  </Button>
+                )}
               </div>
             </ListSection>
           );
