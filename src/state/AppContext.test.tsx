@@ -4,13 +4,48 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { Item, SaleEvent } from '../types';
 import type { Snapshot } from '../sync/fetch';
 
-const h = vi.hoisted(() => ({
-  fetchAll: vi.fn(),
-  mirrorCatalog: vi.fn(),
-  mirrorCategories: vi.fn(),
-  mirrorEvents: vi.fn(),
-  fakeClient: { fake: true },
-}));
+type FakeChannel = {
+  name: string;
+  regs: { filter: Record<string, string>; cb: (p: unknown) => void }[];
+  status?: (s: string) => void;
+  on: (t: string, f: Record<string, string>, cb: (p: unknown) => void) => FakeChannel;
+  subscribe: (cb: (s: string) => void) => FakeChannel;
+};
+
+const h = vi.hoisted(() => {
+  const channels: FakeChannel[] = [];
+  return {
+    fetchAll: vi.fn(),
+    mirrorCatalog: vi.fn(),
+    mirrorCategories: vi.fn(),
+    mirrorEvents: vi.fn(),
+    channels,
+    fakeClient: {
+      fake: true,
+      channel: vi.fn((name: string) => {
+        const ch: FakeChannel = {
+          name,
+          regs: [],
+          on(_t, filter, cb) {
+            ch.regs.push({ filter, cb });
+            return ch;
+          },
+          subscribe(cb) {
+            ch.status = cb;
+            return ch;
+          },
+        };
+        channels.push(ch);
+        return ch;
+      }),
+      // Mimics realtime-js: our own removal reports CLOSED to the channel.
+      removeChannel: vi.fn((ch: FakeChannel) => {
+        ch.status?.('CLOSED');
+        return Promise.resolve('ok');
+      }),
+    },
+  };
+});
 
 vi.mock('../lib/supabase', () => ({ supabase: h.fakeClient, hasSupabaseConfig: () => true }));
 vi.mock('../sync/fetch', () => ({ fetchAll: h.fetchAll }));
@@ -80,6 +115,9 @@ async function mount() {
 
 beforeEach(() => {
   localStorage.clear();
+  h.channels.length = 0;
+  h.fakeClient.channel.mockClear();
+  h.fakeClient.removeChannel.mockClear();
   h.fetchAll.mockReset();
   h.mirrorCatalog.mockReset().mockResolvedValue(undefined);
   h.mirrorCategories.mockReset().mockResolvedValue(undefined);
@@ -187,5 +225,103 @@ describe('AppProvider', () => {
     await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale 2' }));
     expect(app.syncStatus).toBe('online');
     err.mockRestore();
+  });
+});
+
+describe('AppProvider realtime', () => {
+  const tableFilter = (ch: FakeChannel, table: string) => ch.regs.find((r) => r.filter.table === table);
+
+  it('subscribes to the snapshot scope after hydrate and removes the channel on unmount', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(h.channels).toHaveLength(1);
+    const ch = h.channels[0];
+    expect(ch.name).toMatch(/^sync:u1:/);
+    expect(tableFilter(ch, 'sales')!.filter.filter).toBe('event_id=in.(e1)');
+    expect(tableFilter(ch, 'items')!.filter.filter).toBe('catalog_id=in.(c1,c2)');
+    act(() => root.unmount());
+    expect(h.fakeClient.removeChannel).toHaveBeenCalledWith(ch);
+    root = createRoot(container); // afterEach unmounts again
+  });
+
+  it('does not subscribe when the first fetch fails', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.fetchAll.mockRejectedValue(new Error('offline'));
+    await mount();
+    expect(h.channels).toHaveLength(0);
+    err.mockRestore();
+  });
+
+  it('applies a Realtime sale INSERT to state without mirroring a write', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    const sales = tableFilter(h.channels[0], 'sales')!;
+    await act(async () =>
+      sales.cb({
+        table: 'sales',
+        eventType: 'INSERT',
+        old: {},
+        new: {
+          id: 's2', event_id: 'e1', timestamp: 3, seller_id: 'u2', lines: [], total: 100,
+          cash_given: null, change: null, created_at: '',
+        },
+      }),
+    );
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's2']);
+    expect(h.mirrorEvents.mock.calls.every(([, a]) => a.type === 'upsertSale')).toBe(true);
+  });
+
+  it('refetches and resubscribes on window online and on foreground', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    expect(h.fakeClient.removeChannel).toHaveBeenCalledWith(h.channels[0]);
+    expect(h.channels).toHaveLength(2);
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(h.fetchAll).toHaveBeenCalledTimes(3);
+    expect(h.channels).toHaveLength(3);
+  });
+
+  it('refetches after a channel error, but not after the CLOSED of its own unsubscribe', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    vi.useFakeTimers();
+    try {
+      // Our own resubscribe closes channel 0: must not schedule a refresh.
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+
+      act(() => h.channels[1].status!('CHANNEL_ERROR'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(h.fetchAll).toHaveBeenCalledTimes(3);
+      expect(h.channels).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refetches when the user is added to an event', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    const members = tableFilter(h.channels[0], 'event_members')!;
+    expect(members.filter.filter).toBe('user_id=eq.u1');
+    await act(async () =>
+      members.cb({ table: 'event_members', eventType: 'INSERT', old: {}, new: { event_id: 'e9', user_id: 'u1' } }),
+    );
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
   });
 });

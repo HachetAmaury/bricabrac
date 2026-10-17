@@ -21,6 +21,7 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { fetchAll } from '../sync/fetch';
 import { mirrorCatalog, mirrorCategories, mirrorEvents } from '../sync/writes';
+import { useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
 
 export type SyncStatus = 'online' | 'offline' | 'syncing';
 
@@ -97,6 +98,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [cart, dispatchCart] = useReducer(cartReducer, []);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing'); // only mounted signed in, fetch starts at once
+  const [realtimeScope, setRealtimeScope] = useState<RealtimeScope | null>(null);
 
   const itemsRef = useRef(allItems);
   const categoriesRef = useRef(allCategories);
@@ -132,6 +134,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'hydrate', events: snap.events });
       setCatalogs(snap.catalogs);
       setProfiles(snap.profiles);
+      // A fresh object resubscribes Realtime to what this snapshot covers.
+      setRealtimeScope({ eventIds: snap.events.map((e) => e.id), catalogIds: snap.catalogs.map((c) => c.id) });
       setSyncStatus('online');
     } catch (err) {
       console.error('[sync] fetch failed, using cache', err);
@@ -176,6 +180,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [onMirrorOk, onMirrorError]
   );
+
+  // Server-origin actions go through the wrapped dispatchers: they are no-ops in the mirror.
+  useRealtimeSync({
+    client: supabase,
+    userId,
+    scope: realtimeScope,
+    refresh,
+    itemsRef,
+    categoriesRef,
+    eventsRef,
+    onItem: dispatchCatalog,
+    onCategory: dispatchCategories,
+    onEvent: dispatchEvents
+  });
 
   useEffect(() => {
     if (activeEventId && !events.some((e) => e.id === activeEventId)) {
