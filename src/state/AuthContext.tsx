@@ -159,10 +159,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (isNetworkFailure(result.error)) return; // try again on the next 'online'
+      // The session is dead: same cleanup as signOut, stored tokens included.
+      clearAccountCache();
       clearLastUser();
       setOfflineUser(null);
       const code = (result.error as { code?: unknown } | null)?.code;
       setLastError(code === 'user_banned' ? MSG_DISABLED : MSG_EXPIRED);
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // Already gone server-side or unreachable: the local state is cleared above.
+      }
     };
     const onOnline = () => void recover();
     window.addEventListener('online', onOnline);

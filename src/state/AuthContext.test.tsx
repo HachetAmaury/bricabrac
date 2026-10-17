@@ -153,11 +153,33 @@ describe('AuthProvider session', () => {
     });
     expect(auth.status).toBe('signedIn');
     expect(localStorage.getItem(LAST_USER_KEY)).not.toBeNull();
+    expect(h.signOut).not.toHaveBeenCalled();
+  });
+
+  it('back online, a rejected signOut after a revoked token is swallowed', async () => {
+    online = false;
+    localStorage.setItem(LAST_USER_KEY, JSON.stringify(cachedUser));
+    await mount();
+    h.signOut.mockRejectedValue(new Error('Failed to fetch'));
+    h.refreshSession.mockResolvedValue({
+      data: { session: null },
+      error: { name: 'AuthApiError', message: 'Invalid Refresh Token: Refresh Token Not Found', status: 400 },
+    });
+    online = true;
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(auth.status).toBe('signedOut');
+    expect(h.signOut).toHaveBeenCalledTimes(1);
   });
 
   it('back online, a revoked refresh token clears the cache and shows the login wall', async () => {
     online = false;
     localStorage.setItem(LAST_USER_KEY, JSON.stringify(cachedUser));
+    localStorage.setItem('cache:events', '[]');
+    localStorage.setItem('cache:items', '[]');
+    localStorage.setItem('events:activeId', '"e1"');
+    localStorage.setItem('sync:outbox:u1', '[]');
     await mount();
     h.refreshSession.mockResolvedValue({
       data: { session: null },
@@ -170,6 +192,11 @@ describe('AuthProvider session', () => {
     expect(auth.status).toBe('signedOut');
     expect(auth.lastError).toBe('Session expirée. Reconnectez-vous.');
     expect(localStorage.getItem(LAST_USER_KEY)).toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('cache:'))).toEqual([]);
+    expect(localStorage.getItem('events:activeId')).toBeNull();
+    // Stored tokens go too; the per-account outbox is kept.
+    expect(h.signOut).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('sync:outbox:u1')).toBe('[]');
   });
 
   describe('profile fetch timeout', () => {

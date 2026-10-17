@@ -257,6 +257,27 @@ describe('AppProvider', () => {
     expect(started).toEqual(['create', 'toggleItem']);
   });
 
+  it('a refresh() hydrate leaves the cart untouched (edge case 14)', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    act(() => app.setActiveEvent('e1'));
+    act(() => app.dispatchCart({ type: 'add', itemId: 'i1' }));
+    const cart = app.cart;
+    expect(cart).toEqual([{ itemId: 'i1', qty: 1 }]);
+    // Server changed the event and its catalog meanwhile.
+    h.fetchAll.mockResolvedValue({
+      ...snapshot,
+      items: [{ ...itemA, price: 400 }, itemB],
+      events: [{ ...serverEvent, name: 'Finale', sales: [] }],
+    });
+    await act(async () => {
+      await app.refresh();
+    });
+    expect(app.events[0].name).toBe('Finale');
+    expect(app.cart).toBe(cart);
+    expect(app.activeEventId).toBe('e1');
+  });
+
   it('starts in syncing until the first fetch settles', async () => {
     let resolve!: (s: Snapshot) => void;
     h.fetchAll.mockReturnValue(new Promise<Snapshot>((r) => (resolve = r)));
