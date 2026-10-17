@@ -17,7 +17,8 @@ const UNCATEGORIZED = '__none__';
 
 export function SellView() {
   const { catalog, categories, activeEvent, cart, dispatchCart, dispatchEvents } = useApp();
-  const { profile } = useAuth();
+  // The session user id is the seller id (profile may be unknown offline).
+  const sellerId = useAuth().session?.user.id ?? null;
   const [step, setStep] = useState<Step>('idle');
 
   const locked = activeEvent?.locked ?? false;
@@ -270,11 +271,12 @@ export function SellView() {
         total={total}
         onCancel={() => setStep('recap')}
         onConfirm={(cashGiven) => {
+          if (!sellerId) return;
           dispatchEvents({
             type: 'recordSale',
             eventId: activeEvent.id,
             saleId: uuid(),
-            sellerId: profile?.id ?? 'local',
+            sellerId,
             cart,
             catalog,
             cashGiven,

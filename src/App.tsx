@@ -46,13 +46,14 @@ function Shell() {
 }
 
 function Gate() {
-  const { status } = useAuth();
+  const { status, session } = useAuth();
   if (status === 'loading') {
     return <p style={{ textAlign: 'center', marginTop: '40vh' }}>Chargement…</p>;
   }
-  if (status === 'signedOut') return <LoginView />;
+  if (status === 'signedOut' || !session) return <LoginView />;
+  // Keyed by user so switching accounts never carries one account's state over.
   return (
-    <AppProvider>
+    <AppProvider key={session.user.id}>
       <Shell />
     </AppProvider>
   );

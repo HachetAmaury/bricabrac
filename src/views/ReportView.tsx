@@ -8,7 +8,8 @@ import { formatCents } from '../lib/money';
 
 export function ReportView() {
   const { activeEvent, dispatchEvents } = useApp();
-  const { profile } = useAuth();
+  // The session user id is the seller id (profile may be unknown offline).
+  const sellerId = useAuth().session?.user.id ?? null;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const perItem = useMemo(() => {
@@ -121,8 +122,8 @@ export function ReportView() {
                         role="button"
                         onClick={(ev) => {
                           ev.stopPropagation();
-                          if (confirm('Annuler la dernière vente ?')) {
-                            dispatchEvents({ type: 'undoMyLast', eventId: activeEvent.id, sellerId: profile?.id ?? 'local' });
+                          if (sellerId && confirm('Annuler la dernière vente ?')) {
+                            dispatchEvents({ type: 'undoMyLast', eventId: activeEvent.id, sellerId });
                           }
                         }}
                         style={{ color: 'var(--ios-red)', fontWeight: 500 }}

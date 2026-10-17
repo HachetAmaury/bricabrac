@@ -16,7 +16,8 @@ const KIND_LABELS: Record<EventKind, string> = {
 };
 
 export function EventsView() {
-  const { events, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
+  const { events, catalogs, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
+  const targetCatalogId = activeEvent?.catalogId ?? catalogs[0]?.id ?? null;
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SaleEvent | null>(null);
 
@@ -93,14 +94,17 @@ export function EventsView() {
         open={creating}
         onClose={() => setCreating(false)}
         copyFrom={activeEvent}
+        hasCatalog={targetCatalogId !== null}
         onCreate={(name, kind, copy) => {
+          if (targetCatalogId === null) return;
           dispatchEvents({
             type: 'create',
             id: uuid(),
-            catalogId: activeEvent?.catalogId ?? 'local',
+            catalogId: targetCatalogId,
             name,
             kind,
-            enabledItemIds: copy && activeEvent ? [...activeEvent.enabledItemIds] : []
+            enabledItemIds: copy && activeEvent ? [...activeEvent.enabledItemIds] : [],
+            createdAt: Date.now()
           });
           setCreating(false);
         }}
@@ -122,11 +126,13 @@ function CreateModal({
   open,
   onClose,
   copyFrom,
+  hasCatalog,
   onCreate
 }: {
   open: boolean;
   onClose: () => void;
   copyFrom: SaleEvent | null;
+  hasCatalog: boolean;
   onCreate: (name: string, kind: EventKind, copy: boolean) => void;
 }) {
   const [name, setName] = useState('');
@@ -136,6 +142,11 @@ function CreateModal({
   if (!open) return null;
   return (
     <Modal open={open} onClose={onClose} title="Nouvel événement">
+      {!hasCatalog && (
+        <p style={{ color: 'var(--label-secondary)', marginTop: 0, marginBottom: 12 }}>
+          Aucun catalogue disponible. Demandez à l’administrateur.
+        </p>
+      )}
       <label style={{ display: 'block', marginBottom: 12 }}>
         Nom
         <input
@@ -170,7 +181,7 @@ function CreateModal({
         <Button variant="gray" size="lg" onClick={onClose}>
           Annuler
         </Button>
-        <Button variant="filled" size="lg" disabled={name.trim() === ''} onClick={() => name.trim() && onCreate(name.trim(), kind, copy)}>
+        <Button variant="filled" size="lg" disabled={!hasCatalog || name.trim() === ''} onClick={() => hasCatalog && name.trim() && onCreate(name.trim(), kind, copy)}>
           Créer
         </Button>
       </div>

@@ -164,4 +164,28 @@ describe('AppProvider', () => {
     expect(err).toHaveBeenCalled();
     err.mockRestore();
   });
+
+  it('starts in syncing until the first fetch settles', async () => {
+    let resolve!: (s: Snapshot) => void;
+    h.fetchAll.mockReturnValue(new Promise<Snapshot>((r) => (resolve = r)));
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => root.render(<AppProvider><Probe /></AppProvider>));
+    expect(app.syncStatus).toBe('syncing');
+    await act(async () => resolve(snapshot));
+    expect(app.syncStatus).toBe('online');
+  });
+
+  it('goes back online when a later mirror succeeds', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.mirrorEvents.mockRejectedValueOnce(new Error('network'));
+    await mount();
+    await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' }));
+    expect(app.syncStatus).toBe('offline');
+    await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale 2' }));
+    expect(app.syncStatus).toBe('online');
+    err.mockRestore();
+  });
 });

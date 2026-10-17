@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Session } from '@supabase/supabase-js';
 import { supabase, hasSupabaseConfig } from '../lib/supabase';
 import type { Profile } from '../types';
+import { KEYS } from './persistence';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
@@ -16,6 +17,17 @@ type AuthValue = {
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
+
+/** Drops this account's cached data so the next account on the device starts clean. */
+function clearAccountCache(): void {
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('cache:') || key === KEYS.activeEventId) localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage unavailable: nothing cached to clear.
+  }
+}
 
 const MSG_BAD_CREDENTIALS = 'Email ou mot de passe incorrect.';
 const MSG_DISABLED = 'Compte désactivé.';
@@ -109,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    clearAccountCache();
     await supabase.auth.signOut();
   }, []);
 

@@ -96,7 +96,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadJSON<string | null>(KEYS.activeEventId, null)
   );
   const [cart, dispatchCart] = useReducer(cartReducer, []);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing'); // only mounted signed in, fetch starts at once
 
   const itemsRef = useRef(allItems);
   const categoriesRef = useRef(allCategories);
@@ -143,6 +143,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (userId) void refresh();
   }, [userId, refresh]);
 
+  // A write that reached the server proves we're back online; leave 'syncing'
+  // alone so an in-progress refresh still reports itself.
+  const onMirrorOk = useCallback(() => {
+    if (mounted.current) setSyncStatus((s) => (s === 'offline' ? 'online' : s));
+  }, []);
   const onMirrorError = useCallback((err: unknown) => {
     console.error('[sync] write failed', err);
     if (mounted.current) setSyncStatus('offline');
@@ -151,25 +156,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const dispatchCatalog = useCallback(
     (a: CatalogAction) => {
       const { prev, next } = apply(itemsRef, catalogReducer, rawDispatchCatalog, a);
-      if (prev !== next) mirrorCatalog(supabase, a, next).catch(onMirrorError);
+      if (prev !== next) mirrorCatalog(supabase, a, next).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorError]
+    [onMirrorOk, onMirrorError]
   );
   const dispatchCategories = useCallback(
     (a: CategoriesAction) => {
       const { prev, next } = apply(categoriesRef, categoriesReducer, rawDispatchCategories, a);
-      if (prev !== next) mirrorCategories(supabase, a, next).catch(onMirrorError);
+      if (prev !== next) mirrorCategories(supabase, a, next).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorError]
+    [onMirrorOk, onMirrorError]
   );
   const dispatchEvents = useCallback(
     (a: EventsAction) => {
       const removedSaleId =
         a.type === 'undoMyLast' ? lastSaleIdOf(eventsRef.current, a.eventId, a.sellerId) : undefined;
       const { prev, next } = apply(eventsRef, eventsReducer, rawDispatchEvents, a);
-      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId).catch(onMirrorError);
+      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorError]
+    [onMirrorOk, onMirrorError]
   );
 
   useEffect(() => {

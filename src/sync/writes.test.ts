@@ -122,7 +122,7 @@ describe('mirrorEvents', () => {
     const created = { ...event, sales: [] };
     await mirrorEvents(
       client,
-      { type: 'create', id: 'e1', catalogId: 'c1', name: 'Tournoi', kind: 'tournoi', enabledItemIds: ['i1'] },
+      { type: 'create', id: 'e1', catalogId: 'c1', name: 'Tournoi', kind: 'tournoi', enabledItemIds: ['i1'], createdAt: event.createdAt },
       [created],
     );
     expect(calls).toEqual([
@@ -150,7 +150,7 @@ describe('mirrorEvents', () => {
     const { client, calls } = fakeClient();
     await mirrorEvents(
       client,
-      { type: 'create', id: 'e1', catalogId: 'c1', name: 'Tournoi', kind: 'tournoi', enabledItemIds: [] },
+      { type: 'create', id: 'e1', catalogId: 'c1', name: 'Tournoi', kind: 'tournoi', enabledItemIds: [], createdAt: event.createdAt },
       [{ ...event, enabledItemIds: [], sales: [] }],
     );
     expect(calls.map((c) => c.table)).toEqual(['events']);

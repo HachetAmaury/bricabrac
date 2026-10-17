@@ -41,6 +41,15 @@ export function CatalogView() {
   const [catEditing, setCatEditing] = useState<CatEditing>(null);
   const [showArchived, setShowArchived] = useState(false);
 
+  if (!activeEvent) {
+    return (
+      <div>
+        <NavBar title="Catalogue" />
+        <p style={{ padding: '0 16px', color: 'var(--label-secondary)' }}>Aucun événement actif.</p>
+      </div>
+    );
+  }
+
   const active = catalog.filter((i) => !i.archived);
   const archived = catalog.filter((i) => i.archived);
   const catById = new Map(categories.map((c) => [c.id, c]));
@@ -166,7 +175,8 @@ function EditModal({ editing, onClose }: { editing: Editing; onClose: () => void
 
 function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; onClose: () => void }) {
   const { dispatchCatalog, categories, activeEvent } = useApp();
-  const catalogId = activeEvent?.catalogId ?? 'local';
+  // Only reachable from CatalogView with an active event.
+  const catalogId = activeEvent?.catalogId ?? null;
   const initialName = editing.mode === 'edit' ? editing.item.name : '';
   const initialPrice = editing.mode === 'edit' ? (editing.item.price / 100).toString().replace('.', ',') : '';
   const [name, setName] = useState(initialName);
@@ -183,6 +193,7 @@ function EditModalInner({ editing, onClose }: { editing: NonNullable<Editing>; o
     const cents = parseAmount(priceText);
     if (cents === null || cents < 0) return setError('Le prix est invalide.');
     if (editing.mode === 'create') {
+      if (catalogId === null) return;
       dispatchCatalog({ type: 'add', id: uuid(), catalogId, name: trimmed, price: cents, icon, categoryId });
     } else {
       dispatchCatalog({ type: 'edit', id: editing.item.id, name: trimmed, price: cents, icon, categoryId });
@@ -313,7 +324,8 @@ function CategoryModal({ catEditing, onClose }: { catEditing: CatEditing; onClos
 
 function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<CatEditing>; onClose: () => void }) {
   const { dispatchCategories, dispatchCatalog, activeEvent } = useApp();
-  const catalogId = activeEvent?.catalogId ?? 'local';
+  // Only reachable from CatalogView with an active event.
+  const catalogId = activeEvent?.catalogId ?? null;
   const [name, setName] = useState(catEditing.mode === 'edit' ? catEditing.category.name : '');
   const [color, setColor] = useState(catEditing.mode === 'edit' ? catEditing.category.color : CATEGORY_COLORS[0]);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +334,7 @@ function CategoryModalInner({ catEditing, onClose }: { catEditing: NonNullable<C
     const trimmed = name.trim();
     if (trimmed === '') return setError('Le nom est obligatoire.');
     if (catEditing.mode === 'create') {
+      if (catalogId === null) return;
       dispatchCategories({ type: 'add', id: uuid(), catalogId, name: trimmed, color });
     } else {
       dispatchCategories({ type: 'edit', id: catEditing.category.id, name: trimmed, color });

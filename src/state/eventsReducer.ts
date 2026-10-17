@@ -2,7 +2,7 @@ import { sumLines } from '../lib/money';
 import type { SaleEvent, EventKind, CartLine, Item, SaleLine, Sale, CashCount } from '../types';
 
 export type EventsAction =
-  | { type: 'create'; id: string; catalogId: string; name: string; kind: EventKind; enabledItemIds: string[] }
+  | { type: 'create'; id: string; catalogId: string; name: string; kind: EventKind; enabledItemIds: string[]; createdAt: number }
   | { type: 'rename'; id: string; name: string }
   | { type: 'delete'; id: string }
   | { type: 'toggleItem'; eventId: string; itemId: string }
@@ -54,7 +54,7 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
           catalogId: action.catalogId,
           name: action.name,
           kind: action.kind,
-          createdAt: Date.now(),
+          createdAt: action.createdAt,
           enabledItemIds: [...action.enabledItemIds],
           sales: [],
           locked: false,

@@ -41,7 +41,8 @@ describe('eventsReducer', () => {
       catalogId: 'cat-1',
       name: 'Bric-à-brac',
       kind: 'bric-a-brac',
-      enabledItemIds: ['a', 'b']
+      enabledItemIds: ['a', 'b'],
+      createdAt: 42
     });
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({
@@ -54,7 +55,7 @@ describe('eventsReducer', () => {
       locked: false,
       lockedAt: null
     });
-    expect(next[0].createdAt).toBeGreaterThan(0);
+    expect(next[0].createdAt).toBe(42);
   });
 
   it('renames an event', () => {

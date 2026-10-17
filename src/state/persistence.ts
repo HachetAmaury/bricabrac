@@ -11,7 +11,7 @@ export function loadJSON<T>(key: string, fallback: T): T {
 export function saveJSON<T>(key: string, value: T): void {
   try {
     const next = JSON.stringify(value);
-    // Skip no-op writes so cross-session sync (storage events) can't ping-pong.
+    // Skip redundant writes: the cache is re-saved on every state change, often unchanged.
     if (localStorage.getItem(key) === next) return;
     localStorage.setItem(key, next);
   } catch {
