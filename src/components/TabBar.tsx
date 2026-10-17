@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { CalendarIcon, CartIcon, ChartIcon, CashIcon, TagIcon } from './ui/icons';
 
-export type TabId = 'events' | 'sell' | 'report' | 'cash' | 'catalog';
+/** `admin` is reached from the drawer only: it has no tab button. */
+export type TabId = 'events' | 'sell' | 'report' | 'cash' | 'catalog' | 'admin';
 
-const tabs: { id: TabId; label: string; Icon: (p: { size?: number }) => ReactNode }[] = [
+const tabs: { id: Exclude<TabId, 'admin'>; label: string; Icon: (p: { size?: number }) => ReactNode }[] = [
   { id: 'events', label: 'Événements', Icon: CalendarIcon },
   { id: 'sell', label: 'Vente', Icon: CartIcon },
   { id: 'report', label: 'Rapport', Icon: ChartIcon },

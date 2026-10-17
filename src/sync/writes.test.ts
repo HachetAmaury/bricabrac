@@ -2,24 +2,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../lib/supabase';
 import type { Category, Item, Sale, SaleEvent } from '../types';
-import { mirrorCatalog, mirrorCategories, mirrorEvents } from './writes';
+import { fetchGrants, mirrorCatalog, mirrorCatalogs, mirrorCategories, mirrorEvents, setGrant } from './writes';
 import { createOutbox, OutboxOfflineError } from './outbox';
 import type { EventsAction } from '../state/eventsReducer';
 
 type Call = { table: string; method: string; args: unknown[] };
 
-function fakeClient(error: unknown = null) {
+function fakeClient(error: unknown = null, data: unknown = null) {
   const calls: Call[] = [];
   const from = vi.fn((table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const method of ['upsert', 'update', 'delete', 'insert', 'eq', 'select']) {
+    for (const method of ['upsert', 'update', 'delete', 'insert', 'eq', 'select', 'match']) {
       chain[method] = (...args: unknown[]) => {
         calls.push({ table, method, args });
         return chain;
       };
     }
     chain.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-      Promise.resolve({ data: null, error }).then(resolve, reject);
+      Promise.resolve({ data, error }).then(resolve, reject);
     return chain;
   });
   const client = { from } as unknown as SupabaseClient<Database>;
@@ -318,6 +318,70 @@ describe('mirrorEvents', () => {
     expect(calls).toEqual([
       { table: 'events', method: 'delete', args: [] },
       { table: 'events', method: 'eq', args: ['id', 'e1'] },
+    ]);
+  });
+});
+
+describe('setGrant', () => {
+  it('granted inserts the event_members row', async () => {
+    const { client, calls } = fakeClient();
+    await setGrant(client, 'e1', 'u2', true);
+    expect(calls).toEqual([{ table: 'event_members', method: 'insert', args: [{ event_id: 'e1', user_id: 'u2' }] }]);
+  });
+
+  it('revoked deletes the matching event_members row', async () => {
+    const { client, calls } = fakeClient();
+    await setGrant(client, 'e1', 'u2', false);
+    expect(calls).toEqual([
+      { table: 'event_members', method: 'delete', args: [] },
+      { table: 'event_members', method: 'match', args: [{ event_id: 'e1', user_id: 'u2' }] },
+    ]);
+  });
+
+  it('ignores a duplicate grant (23505)', async () => {
+    const { client } = fakeClient({ code: '23505', message: 'duplicate key' });
+    await expect(setGrant(client, 'e1', 'u2', true)).resolves.toBeUndefined();
+  });
+
+  it('rethrows any other error', async () => {
+    const { client } = fakeClient({ code: '42501', message: 'denied' });
+    await expect(setGrant(client, 'e1', 'u2', true)).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+describe('fetchGrants', () => {
+  it('returns the event ids granted to the user', async () => {
+    const { client, calls } = fakeClient(null, [{ event_id: 'e1' }, { event_id: 'e2' }]);
+    await expect(fetchGrants(client, 'u2')).resolves.toEqual(['e1', 'e2']);
+    expect(calls).toEqual([
+      { table: 'event_members', method: 'select', args: ['event_id'] },
+      { table: 'event_members', method: 'eq', args: ['user_id', 'u2'] },
+    ]);
+  });
+});
+
+describe('mirrorCatalogs', () => {
+  it('add inserts the catalog row', async () => {
+    const { client, calls } = fakeClient();
+    await mirrorCatalogs(client, { type: 'add', catalog: { id: 'c2', name: 'Buvette' } });
+    expect(calls).toEqual([{ table: 'catalogs', method: 'insert', args: [{ id: 'c2', name: 'Buvette' }] }]);
+  });
+
+  it('rename updates only the name', async () => {
+    const { client, calls } = fakeClient();
+    await mirrorCatalogs(client, { type: 'rename', id: 'c1', name: 'Snack' });
+    expect(calls).toEqual([
+      { table: 'catalogs', method: 'update', args: [{ name: 'Snack' }] },
+      { table: 'catalogs', method: 'eq', args: ['id', 'c1'] },
+    ]);
+  });
+
+  it('delete deletes by id and rethrows the FK error', async () => {
+    const { client, calls } = fakeClient({ code: '23503', message: 'fk' });
+    await expect(mirrorCatalogs(client, { type: 'delete', id: 'c1' })).rejects.toMatchObject({ code: '23503' });
+    expect(calls).toEqual([
+      { table: 'catalogs', method: 'delete', args: [] },
+      { table: 'catalogs', method: 'eq', args: ['id', 'c1'] },
     ]);
   });
 });

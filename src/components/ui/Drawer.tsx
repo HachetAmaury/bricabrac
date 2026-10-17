@@ -1,10 +1,8 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../state/AuthContext';
-import { parseBackup } from '../../lib/backup';
-import { withItemDefaults, withCategoryDefaults, withEventDefaults } from '../../state/normalize';
 import { ListSection, Row } from './ListSection';
-import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
+import { CloseIcon, UserIcon, ExportIcon, InfoIcon, LockIcon } from './icons';
 import { downloadJSON } from '../../lib/download';
 
 // Schema version stamped into exported backups (data format, not the build).
@@ -13,41 +11,24 @@ const BACKUP_VERSION = '0.2.0';
 // device is actually running — handy for the stubborn iOS home-screen cache.
 const APP_VERSION = __APP_VERSION__;
 
-export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { allItems, allCategories, events, dispatchCatalog, dispatchCategories, dispatchEvents } = useApp();
-  const { profile } = useAuth();
+export function Drawer({
+  open,
+  onClose,
+  onOpenAdmin
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOpenAdmin?: () => void;
+}) {
+  const { allItems, allCategories, events } = useApp();
+  const { profile, signOut } = useAuth();
   const [about, setAbout] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
   const exportData = () => {
     const payload = { version: BACKUP_VERSION, exportedAt: new Date().toISOString(), catalog: allItems, categories: allCategories, events };
     downloadJSON(payload, `bricabrac-${new Date().toISOString().slice(0, 10)}.json`);
-  };
-
-  const importData = async (file: File) => {
-    const text = await file.text();
-    const result = parseBackup(text);
-    if (!result.ok) {
-      alert(`Import impossible : ${result.error}`);
-      return;
-    }
-    const confirmed = window.confirm(
-      'Importer cette sauvegarde remplacera toutes les données actuelles (articles, catégories et événements). Continuer ?'
-    );
-    if (!confirmed) return;
-    dispatchCatalog({ type: 'hydrate', items: result.data.catalog.map(withItemDefaults) });
-    dispatchCategories({ type: 'hydrate', categories: result.data.categories.map(withCategoryDefaults) });
-    dispatchEvents({ type: 'hydrate', events: result.data.events.map(withEventDefaults) });
-    onClose();
-  };
-
-  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so picking the same file again still fires onChange.
-    e.target.value = '';
-    if (file) await importData(file);
   };
 
   return (
@@ -102,9 +83,20 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
           <Row
             leading={<UserIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
             title={profile?.displayName ?? '…'}
-            subtitle="Connecté"
+            subtitle={profile?.isAdmin ? 'Administrateur' : 'Membre'}
           />
+          <Row title="Se déconnecter" danger onClick={() => void signOut()} accessory={<span />} />
         </ListSection>
+
+        {profile?.isAdmin && onOpenAdmin && (
+          <ListSection header="Administration">
+            <Row
+              leading={<LockIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
+              title="Administration"
+              onClick={onOpenAdmin}
+            />
+          </ListSection>
+        )}
 
         <ListSection header="Données">
           <Row
@@ -114,18 +106,6 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
               exportData();
               onClose();
             }}
-          />
-          <Row
-            leading={<ImportIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
-            title="Importer (restaurer JSON)"
-            onClick={() => fileInputRef.current?.click()}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            onChange={onFileChange}
-            style={{ display: 'none' }}
           />
           <Row
             leading={<InfoIcon size={22} style={{ color: 'var(--ios-blue)' }} />}

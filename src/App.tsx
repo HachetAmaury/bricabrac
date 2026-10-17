@@ -10,6 +10,7 @@ import { EventsView } from './views/EventsView';
 import { ReportView } from './views/ReportView';
 import { SellView } from './views/SellView';
 import { CashView } from './views/CashView';
+import { AdminView } from './views/AdminView';
 import { Modal } from './components/Modal';
 import { Button } from './components/ui/Button';
 import { formatCents } from './lib/money';
@@ -130,9 +131,17 @@ function Shell() {
         {tab === 'report' && <ReportView />}
         {tab === 'cash' && <CashView />}
         {tab === 'catalog' && <CatalogView />}
+        {tab === 'admin' && <AdminView onBack={() => setTab('events')} />}
         <TabBar active={tab} onSelect={setTab} />
       </div>
-      <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Drawer
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onOpenAdmin={() => {
+          setTab('admin');
+          setMenuOpen(false);
+        }}
+      />
       <RejectedSalesDialog />
       <ImportLocalModal open={legacy && profile?.isAdmin === true} onImport={importLegacy} onIgnore={ignoreLegacy} />
     </ChromeProvider>

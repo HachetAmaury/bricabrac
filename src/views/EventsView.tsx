@@ -7,7 +7,7 @@ import { Button } from '../components/ui/Button';
 import { PlusIcon, CheckIcon, LockIcon, LockOpenIcon, PencilIcon, TrashIcon } from '../components/ui/icons';
 import { uuid } from '../lib/uuid';
 import { formatCents } from '../lib/money';
-import type { EventKind, SaleEvent } from '../types';
+import type { Catalog, EventKind, SaleEvent } from '../types';
 
 const KIND_LABELS: Record<EventKind, string> = {
   tournoi: 'Tournoi',
@@ -17,7 +17,6 @@ const KIND_LABELS: Record<EventKind, string> = {
 
 export function EventsView() {
   const { events, catalogs, activeEventId, setActiveEvent, dispatchEvents, activeEvent } = useApp();
-  const targetCatalogId = activeEvent?.catalogId ?? catalogs[0]?.id ?? null;
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<SaleEvent | null>(null);
 
@@ -94,16 +93,17 @@ export function EventsView() {
         open={creating}
         onClose={() => setCreating(false)}
         copyFrom={activeEvent}
-        hasCatalog={targetCatalogId !== null}
-        onCreate={(name, kind, copy) => {
-          if (targetCatalogId === null) return;
+        catalogs={catalogs}
+        onCreate={(name, kind, copy, catalogId) => {
+          // Enabled items belong to a catalog: only copy them within the same one.
+          const sameCatalog = activeEvent?.catalogId === catalogId;
           dispatchEvents({
             type: 'create',
             id: uuid(),
-            catalogId: targetCatalogId,
+            catalogId,
             name,
             kind,
-            enabledItemIds: copy && activeEvent ? [...activeEvent.enabledItemIds] : [],
+            enabledItemIds: copy && sameCatalog && activeEvent ? [...activeEvent.enabledItemIds] : [],
             createdAt: Date.now()
           });
           setCreating(false);
@@ -126,23 +126,28 @@ function CreateModal({
   open,
   onClose,
   copyFrom,
-  hasCatalog,
+  catalogs,
   onCreate
 }: {
   open: boolean;
   onClose: () => void;
   copyFrom: SaleEvent | null;
-  hasCatalog: boolean;
-  onCreate: (name: string, kind: EventKind, copy: boolean) => void;
+  catalogs: Catalog[];
+  onCreate: (name: string, kind: EventKind, copy: boolean, catalogId: string) => void;
 }) {
   const [name, setName] = useState('');
+  const [catalogId, setCatalogId] = useState(
+    () => (catalogs.some((c) => c.id === copyFrom?.catalogId) ? copyFrom!.catalogId : catalogs[0]?.id) ?? ''
+  );
+  const hasCatalog = catalogs.some((c) => c.id === catalogId);
+  const canCreate = hasCatalog && name.trim() !== '';
   const [kind, setKind] = useState<EventKind>('bric-a-brac');
   const [copy, setCopy] = useState(true);
 
   if (!open) return null;
   return (
     <Modal open={open} onClose={onClose} title="Nouvel événement">
-      {!hasCatalog && (
+      {catalogs.length === 0 && (
         <p style={{ color: 'var(--label-secondary)', marginTop: 0, marginBottom: 12 }}>
           Aucun catalogue disponible. Demandez à l’administrateur.
         </p>
@@ -171,7 +176,26 @@ function CreateModal({
           <option value="autre">Autre</option>
         </select>
       </label>
-      {copyFrom && (
+      {catalogs.length > 0 && (
+        <label style={{ display: 'block', marginBottom: 12 }}>
+          Catalogue
+          <select
+            required
+            value={catalogId}
+            onChange={(e) => setCatalogId(e.target.value)}
+            style={{ width: '100%', padding: 11, marginTop: 4 }}
+          >
+            {[...catalogs]
+              .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+              .map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {copyFrom && copyFrom.catalogId === catalogId && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
           Copier les articles activés de "{copyFrom.name}"
@@ -181,7 +205,7 @@ function CreateModal({
         <Button variant="gray" size="lg" onClick={onClose}>
           Annuler
         </Button>
-        <Button variant="filled" size="lg" disabled={!hasCatalog || name.trim() === ''} onClick={() => hasCatalog && name.trim() && onCreate(name.trim(), kind, copy)}>
+        <Button variant="filled" size="lg" disabled={!canCreate} onClick={() => canCreate && onCreate(name.trim(), kind, copy, catalogId)}>
           Créer
         </Button>
       </div>

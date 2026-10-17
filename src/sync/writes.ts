@@ -1,10 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, EventRow } from '../lib/supabase';
-import type { Category, Item, SaleEvent } from '../types';
+import type { Catalog, Category, Item, SaleEvent } from '../types';
 import type { CatalogAction } from '../state/catalogReducer';
 import type { CategoriesAction } from '../state/categoriesReducer';
 import type { EventsAction } from '../state/eventsReducer';
-import { categoryToRow, eventToRow, itemToRow, saleToRow } from './mappers';
+import { catalogToRow, categoryToRow, eventToRow, itemToRow, saleToRow } from './mappers';
 import { OutboxOfflineError, type FlushContext, type Outbox } from './outbox';
 import { uuid } from '../lib/uuid';
 
@@ -145,4 +145,36 @@ export async function mirrorEvents(
     case 'hydrate':
       return;
   }
+}
+
+export type CatalogsAction =
+  | { type: 'add'; catalog: Catalog }
+  | { type: 'rename'; id: string; name: string }
+  | { type: 'delete'; id: string };
+
+/** Admin-only catalog writes. A delete refused by an event's FK rejects with code 23503. */
+export async function mirrorCatalogs(client: Client, a: CatalogsAction): Promise<void> {
+  switch (a.type) {
+    case 'add':
+      return run(client.from('catalogs').insert(catalogToRow(a.catalog)));
+    case 'rename':
+      return run(client.from('catalogs').update({ name: a.name }).eq('id', a.id));
+    case 'delete':
+      return run(client.from('catalogs').delete().eq('id', a.id));
+  }
+}
+
+/** Grants or revokes one user's access to one event. Granting twice is not an error. */
+export async function setGrant(client: Client, eventId: string, userId: string, granted: boolean): Promise<void> {
+  const row = { event_id: eventId, user_id: userId };
+  if (!granted) return run(client.from('event_members').delete().match(row));
+  const { error } = await client.from('event_members').insert(row);
+  if (error && (error as { code?: string }).code !== '23505') throw error;
+}
+
+/** Ids of the events the user is a member of. */
+export async function fetchGrants(client: Client, userId: string): Promise<string[]> {
+  const { data, error } = await client.from('event_members').select('event_id').eq('user_id', userId);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.event_id);
 }

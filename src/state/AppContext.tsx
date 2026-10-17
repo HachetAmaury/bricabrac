@@ -20,7 +20,7 @@ import { loadJSON, saveJSON, KEYS } from './persistence';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { fetchAll } from '../sync/fetch';
-import { mirrorCatalog, mirrorCategories, mirrorEvents } from '../sync/writes';
+import { mirrorCatalog, mirrorCatalogs, mirrorCategories, mirrorEvents, type CatalogsAction } from '../sync/writes';
 import { nextScope, useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
 import { createOutbox, OutboxOfflineError, type OutboxEntry, type RejectedSale } from '../sync/outbox';
 
@@ -53,6 +53,11 @@ type AppContextValue = {
   dispatchCatalog: (a: CatalogAction) => void;
   dispatchCategories: (a: CategoriesAction) => void;
   dispatchEvents: (a: EventsAction) => void;
+  /**
+   * Admin-only, online-only: writes to the server first, then applies the
+   * change locally. Resolves with a French error message, or null on success.
+   */
+  dispatchCatalogs: (a: CatalogsAction) => Promise<string | null>;
   dispatchCart: (a: CartAction) => void;
 };
 
@@ -311,6 +316,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [onMirrorOk, onMirrorError, outbox, flushExtras]
   );
 
+  const dispatchCatalogs = useCallback(async (a: CatalogsAction): Promise<string | null> => {
+    try {
+      await mirrorCatalogs(supabase, a);
+    } catch (err) {
+      console.error('[sync] catalog write failed', err);
+      return (err as { code?: string } | null)?.code === '23503'
+        ? 'Catalogue utilisé par un événement.'
+        : 'Modification impossible. Vérifiez le réseau.';
+    }
+    if (!mounted.current) return null;
+    setCatalogs((cs) => {
+      switch (a.type) {
+        case 'add':
+          return [...cs, a.catalog];
+        case 'rename':
+          return cs.map((c) => (c.id === a.id ? { ...c, name: a.name } : c));
+        case 'delete':
+          return cs.filter((c) => c.id !== a.id);
+      }
+    });
+    return null;
+  }, []);
+
   // Server-origin actions go through the wrapped dispatchers: they are no-ops in the mirror.
   useRealtimeSync({
     client: supabase,
@@ -378,6 +406,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatchCatalog,
     dispatchCategories,
     dispatchEvents,
+    dispatchCatalogs,
     dispatchCart
   };
 

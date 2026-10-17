@@ -32,15 +32,17 @@ export function NavIconButton({
   );
 }
 
-// iOS navigation bar: a sticky translucent chrome row (burger + optional right
-// action) with a large title that scrolls beneath it.
+// iOS navigation bar: a sticky translucent chrome row (burger, or `leftAction`
+// when given, + optional right action) with a large title that scrolls beneath it.
 export function NavBar({
   title,
   subtitle,
+  leftAction,
   rightAction
 }: {
   title: string;
   subtitle?: string;
+  leftAction?: ReactNode;
   rightAction?: ReactNode;
 }) {
   const { openMenu } = useChrome();
@@ -67,22 +69,24 @@ export function NavBar({
             padding: '0 8px'
           }}
         >
-          <button
-            onClick={openMenu}
-            aria-label="Menu"
-            style={{
-              width: 40,
-              height: 40,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--ios-blue)'
-            }}
-          >
-            <MenuIcon size={26} />
-          </button>
+          {leftAction ?? (
+            <button
+              onClick={openMenu}
+              aria-label="Menu"
+              style={{
+                width: 40,
+                height: 40,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--ios-blue)'
+              }}
+            >
+              <MenuIcon size={26} />
+            </button>
+          )}
           <div style={{ flex: 1 }} />
           {rightAction}
         </div>
