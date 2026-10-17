@@ -13,7 +13,7 @@ SUPABASE_SERVICE_ROLE_KEY=<clé service_role>
 ```
 
 - `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY` sont publiques et embarquées dans le build.
-- `SUPABASE_SERVICE_ROLE_KEY` est un secret serveur, utilisé uniquement par le script d'administration. Ne l'ajoutez ni à Vercel ni à GitHub.
+- `SUPABASE_SERVICE_ROLE_KEY` est un secret serveur, utilisé uniquement par le script d'administration. Ne l’ajoutez pas à Vercel.
 
 ## Créer le premier administrateur
 
@@ -52,7 +52,6 @@ Le déploiement peut aussi se faire via le MCP Supabase (`deploy_edge_function`)
 ## Déploiement
 
 - **Vercel** (projet `bricabrac`) : variables `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY` définies pour Production et Preview (`vercel env ls` pour vérifier). Un redéploiement est nécessaire après toute modification.
-- **GitHub Pages** : le workflow `.github/workflows/deploy.yml` lit les secrets de dépôt `VITE_SUPABASE_URL` et `VITE_SUPABASE_PUBLISHABLE_KEY` (`gh secret set NOM --body "valeur"`, `gh secret list`). Node 22 est requis par `@supabase/supabase-js`.
 
 ## Tests
 
