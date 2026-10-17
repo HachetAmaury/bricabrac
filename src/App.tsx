@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './state/AppContext';
 import { AuthProvider, useAuth } from './state/AuthContext';
 import { LoginView } from './views/LoginView';
@@ -14,6 +14,12 @@ import { Modal } from './components/Modal';
 import { Button } from './components/ui/Button';
 import { formatCents } from './lib/money';
 import { downloadJSON } from './lib/download';
+import { ImportLocalModal } from './components/ImportLocalModal';
+import { supabase } from './lib/supabase';
+import { uuid } from './lib/uuid';
+import type { Backup } from './lib/backup';
+import { LEGACY_KEYS, loadJSON } from './state/persistence';
+import { clearLegacyData, hasLegacyData, runImport } from './sync/importLocal';
 import type { RejectReason } from './sync/outbox';
 
 const REASONS: Record<RejectReason, string> = {
@@ -64,6 +70,41 @@ export function RejectedSalesDialog() {
 function Shell() {
   const [tab, setTab] = useState<TabId>('events');
   const [menuOpen, setMenuOpen] = useState(false);
+  const { session, profile } = useAuth();
+  const { refresh } = useApp();
+  // Decided once per sign-in (Shell is remounted per user): later writes to the
+  // legacy keys never re-trigger the prompt.
+  const [legacy, setLegacy] = useState(() => hasLegacyData());
+  const isMember = profile !== null && !profile.isAdmin;
+
+  // Members never owned the old local data: drop it silently, once.
+  useEffect(() => {
+    if (legacy && isMember) {
+      clearLegacyData();
+      setLegacy(false);
+    }
+  }, [legacy, isMember]);
+
+  const importLegacy = async () => {
+    const data: Backup = {
+      catalog: loadJSON(LEGACY_KEYS.catalog, []),
+      categories: loadJSON(LEGACY_KEYS.categories, []),
+      events: loadJSON(LEGACY_KEYS.events, [])
+    };
+    await runImport(supabase, data, {
+      catalogId: uuid(),
+      catalogName: 'Catalogue importé',
+      sellerId: session!.user.id
+    });
+    await refresh();
+    setLegacy(false);
+  };
+
+  const ignoreLegacy = () => {
+    if (!confirm('Les données locales seront effacées. Continuer ?')) return;
+    clearLegacyData();
+    setLegacy(false);
+  };
 
   return (
     <ChromeProvider openMenu={() => setMenuOpen(true)}>
@@ -92,6 +133,7 @@ function Shell() {
       </div>
       <Drawer open={menuOpen} onClose={() => setMenuOpen(false)} />
       <RejectedSalesDialog />
+      <ImportLocalModal open={legacy && profile?.isAdmin === true} onImport={importLegacy} onIgnore={ignoreLegacy} />
     </ChromeProvider>
   );
 }
