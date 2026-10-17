@@ -128,17 +128,17 @@ describe('runImport', () => {
   });
 
   const fake = (failOn?: string) => {
-    const calls: { table: string; rows: unknown }[] = [];
+    const calls: { table: string; rows: unknown; opts?: unknown }[] = [];
     const client = {
       from: (table: string) => ({
-        insert: vi.fn(async (rows: unknown) => {
-          calls.push({ table, rows });
+        upsert: vi.fn(async (rows: unknown, opts: unknown) => {
+          calls.push({ table, rows, opts });
           return { error: table === failOn ? { message: 'boom' } : null };
         }),
         update: (values: unknown) => ({
           eq: async (_c: string, id: string) => {
             calls.push({ table: `update:${table}`, rows: { values, id } });
-            return { error: null };
+            return { error: failOn === `update:${table}` ? { message: 'boom' } : null };
           },
         }),
       }),
@@ -158,7 +158,15 @@ describe('runImport', () => {
       'sales',
     ]);
     expect(calls[0].rows).toEqual({ id: opts.catalogId, name: 'Catalogue importé' });
+    // Retry-safe: rows an interrupted attempt already wrote are skipped.
+    for (const c of calls) {
+      expect(c.opts).toEqual({
+        onConflict: c.table === 'event_items' ? 'event_id,item_id' : 'id',
+        ignoreDuplicates: true,
+      });
+    }
     for (const k of Object.values(LEGACY_KEYS)) expect(localStorage.getItem(k)).toBeNull();
+    expect(localStorage.getItem('import:plan')).toBeNull();
   });
 
   it('applies locks last, after sales', async () => {
@@ -190,5 +198,26 @@ describe('runImport', () => {
     await expect(runImport(client, legacy(), opts)).rejects.toBeTruthy();
     expect(calls.map((c) => c.table)).toEqual(['catalogs', 'categories', 'items']);
     for (const k of Object.values(LEGACY_KEYS)) expect(localStorage.getItem(k)).not.toBeNull();
+  });
+
+  it('a retry after a partial failure reuses the first attempt ids', async () => {
+    const first = fake('items');
+    await expect(runImport(first.client, legacy(), opts)).rejects.toBeTruthy();
+    const second = fake();
+    await runImport(second.client, legacy(), { ...opts, catalogId: 'another-fresh-id' });
+    const rows = (c: typeof first, table: string) => c.calls.find((x) => x.table === table)!.rows;
+    expect(rows(second, 'catalogs')).toEqual(rows(first, 'catalogs'));
+    expect(rows(second, 'categories')).toEqual(rows(first, 'categories'));
+    expect(rows(second, 'items')).toEqual(rows(first, 'items'));
+    for (const k of Object.values(LEGACY_KEYS)) expect(localStorage.getItem(k)).toBeNull();
+  });
+
+  it('a retry after a failure while locking only applies the locks', async () => {
+    const first = fake('update:events');
+    await expect(runImport(first.client, legacy({ locked: true }), opts)).rejects.toBeTruthy();
+    const second = fake();
+    await runImport(second.client, legacy({ locked: true }), opts);
+    expect(second.calls.map((c) => c.table)).toEqual(['update:events']);
+    expect(second.calls[0].rows).toEqual(first.calls[6].rows);
   });
 });
