@@ -9,6 +9,7 @@
 --   u_other  00000000-0000-4000-a000-000000000003
 --   catalogs 00000000-0000-4000-a000-0000000000c1, c2 (c3 created by admin)
 --   events   00000000-0000-4000-a000-0000000000e1 (e2 created by member)
+--   items    00000000-0000-4000-a000-0000000000b1 (catalog c1), b2 (catalog c2)
 --   sales    00000000-0000-4000-a000-0000000000a1..a5
 
 begin;
@@ -42,6 +43,9 @@ end $$;
 insert into public.catalogs (id, name, created_by)
 values ('00000000-0000-4000-a000-0000000000c1', 'RLS catalog', '00000000-0000-4000-a000-000000000001'),
        ('00000000-0000-4000-a000-0000000000c2', 'RLS catalog 2', '00000000-0000-4000-a000-000000000001');
+insert into public.items (id, catalog_id, name, price)
+values ('00000000-0000-4000-a000-0000000000b1', '00000000-0000-4000-a000-0000000000c1', 'Item c1', 100),
+       ('00000000-0000-4000-a000-0000000000b2', '00000000-0000-4000-a000-0000000000c2', 'Item c2', 200);
 insert into public.events (id, catalog_id, name, kind, created_by)
 values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000c1', 'RLS event', 'autre',
         '00000000-0000-4000-a000-000000000001');
@@ -182,6 +186,68 @@ begin
   select count(*) into n from public.events;
   if n <> 2 then raise exception 'FAIL 7: creator should see 2 events, sees %', n; end if;
   raise notice 'ok 7 (spoofed event creator rejected, own event created and visible)';
+end $$;
+
+-- Case 10: event_items must use items of the event's catalog
+-- (e2 is unlocked, catalog c1).
+do $$
+begin
+  insert into public.event_items (event_id, item_id)
+  values ('00000000-0000-4000-a000-0000000000e2', '00000000-0000-4000-a000-0000000000b1');
+  begin
+    insert into public.event_items (event_id, item_id)
+    values ('00000000-0000-4000-a000-0000000000e2', '00000000-0000-4000-a000-0000000000b2');
+    raise exception 'FAIL 10: item from another catalog was added to the event';
+  exception when check_violation then
+    null; -- expected: guard_event_items
+  end;
+  raise notice 'ok 10 (same-catalog item added, foreign-catalog item rejected)';
+end $$;
+
+-- Case 11: a locked event is frozen (e1 was locked in case 3).
+do $$
+declare n int;
+begin
+  begin
+    insert into public.event_items (event_id, item_id)
+    values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000b1');
+    raise exception 'FAIL 11: item added to a locked event';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    update public.events set cash_float = 5000 where id = '00000000-0000-4000-a000-0000000000e1';
+    raise exception 'FAIL 11: cash_float changed on a locked event';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
+    update public.events set cash_count = '{"1000":2}' where id = '00000000-0000-4000-a000-0000000000e1';
+    raise exception 'FAIL 11: cash_count changed on a locked event';
+  exception when insufficient_privilege then
+    null;
+  end;
+  update public.events set name = 'RLS event (locked, renamed)' where id = '00000000-0000-4000-a000-0000000000e1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 11: member could not rename the locked event'; end if;
+
+  -- Lock e2 too: its item list can no longer shrink.
+  update public.events set locked_at = now() where id = '00000000-0000-4000-a000-0000000000e2';
+  begin
+    delete from public.event_items where event_id = '00000000-0000-4000-a000-0000000000e2';
+    raise exception 'FAIL 11: item removed from a locked event';
+  exception when insufficient_privilege then
+    null;
+  end;
+
+  -- Unlocking is allowed, after which the event is editable again.
+  update public.events set locked_at = null where id = '00000000-0000-4000-a000-0000000000e1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 11: member could not unlock the event'; end if;
+  update public.events set cash_float = 5000 where id = '00000000-0000-4000-a000-0000000000e1';
+  insert into public.event_items (event_id, item_id)
+  values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000b1');
+  raise notice 'ok 11 (locked: item list and cash frozen, rename ok; unlock ok, then editable)';
 end $$;
 
 -- From here on: u_admin.
