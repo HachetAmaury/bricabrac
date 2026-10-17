@@ -7,21 +7,23 @@
 --   u_admin  00000000-0000-4000-a000-000000000001
 --   u_member 00000000-0000-4000-a000-000000000002
 --   u_other  00000000-0000-4000-a000-000000000003
---   catalog  00000000-0000-4000-a000-0000000000c1
---   event    00000000-0000-4000-a000-0000000000e1
+--   catalogs 00000000-0000-4000-a000-0000000000c1, c2 (c3 created by admin)
+--   events   00000000-0000-4000-a000-0000000000e1 (e2 created by member)
 --   sales    00000000-0000-4000-a000-0000000000a1..a5
 
 begin;
 
 -- ------------------------------------------------------------ fixtures (postgres)
+-- u_admin gets is_admin via app_metadata; u_other tries to self-promote via
+-- user_metadata, which must be ignored.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
   ('00000000-0000-4000-a000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-   'rls-admin@test.invalid', '{"display_name":"Admin","is_admin":true}', '{}', now(), now()),
+   'rls-admin@test.invalid', '{"display_name":"Admin"}', '{"is_admin":true}', now(), now()),
   ('00000000-0000-4000-a000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
    'rls-member@test.invalid', '{"display_name":"Member"}', '{}', now(), now()),
   ('00000000-0000-4000-a000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-   'rls-other@test.invalid', '{"display_name":"Other"}', '{}', now(), now());
+   'rls-other@test.invalid', '{"display_name":"Other","is_admin":true}', '{}', now(), now());
 
 do $$
 begin
@@ -30,14 +32,16 @@ begin
                    '00000000-0000-4000-a000-000000000002',
                    '00000000-0000-4000-a000-000000000003')) <> 3
      or not (select is_admin from public.profiles where id = '00000000-0000-4000-a000-000000000001')
-     or (select is_admin from public.profiles where id = '00000000-0000-4000-a000-000000000002') then
+     or (select is_admin from public.profiles where id = '00000000-0000-4000-a000-000000000002')
+     or (select is_admin from public.profiles where id = '00000000-0000-4000-a000-000000000003') then
     raise exception 'FAIL 0: handle_new_user did not create the expected profiles';
   end if;
-  raise notice 'ok 0 (profiles created by trigger)';
+  raise notice 'ok 0 (profiles created by trigger, is_admin only from app_metadata)';
 end $$;
 
 insert into public.catalogs (id, name, created_by)
-values ('00000000-0000-4000-a000-0000000000c1', 'RLS catalog', '00000000-0000-4000-a000-000000000001');
+values ('00000000-0000-4000-a000-0000000000c1', 'RLS catalog', '00000000-0000-4000-a000-000000000001'),
+       ('00000000-0000-4000-a000-0000000000c2', 'RLS catalog 2', '00000000-0000-4000-a000-000000000001');
 insert into public.events (id, catalog_id, name, kind, created_by)
 values ('00000000-0000-4000-a000-0000000000e1', '00000000-0000-4000-a000-0000000000c1', 'RLS event', 'autre',
         '00000000-0000-4000-a000-000000000001');
@@ -135,6 +139,95 @@ begin
   update public.profiles set display_name = 'Member 2' where id = '00000000-0000-4000-a000-000000000002';
   if not found then raise exception 'FAIL 5: u_member cannot edit own display_name'; end if;
   raise notice 'ok 5 (is_admin change rejected, display_name editable)';
+end $$;
+
+-- Case 6: member may rename the event but not move it or change its creator.
+do $$
+declare n int;
+begin
+  begin
+    update public.events set catalog_id = '00000000-0000-4000-a000-0000000000c2'
+    where id = '00000000-0000-4000-a000-0000000000e1';
+    raise exception 'FAIL 6: member moved the event to another catalog';
+  exception when insufficient_privilege then
+    null; -- expected: protect_event_ownership trigger
+  end;
+  begin
+    update public.events set created_by = '00000000-0000-4000-a000-000000000002'
+    where id = '00000000-0000-4000-a000-0000000000e1';
+    raise exception 'FAIL 6: member changed the event creator';
+  exception when insufficient_privilege then
+    null;
+  end;
+  update public.events set name = 'RLS event renamed' where id = '00000000-0000-4000-a000-0000000000e1';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 6: member could not rename the event'; end if;
+  raise notice 'ok 6 (catalog_id/created_by change rejected, rename accepted)';
+end $$;
+
+-- Case 7: member creates an event; a spoofed created_by is rejected.
+do $$
+declare n int;
+begin
+  begin
+    insert into public.events (id, catalog_id, name, kind, created_by)
+    values ('00000000-0000-4000-a000-0000000000e3', '00000000-0000-4000-a000-0000000000c1', 'spoof', 'autre',
+            '00000000-0000-4000-a000-000000000001');
+    raise exception 'FAIL 7: event inserted with a foreign created_by';
+  exception when insufficient_privilege then
+    null;
+  end;
+  insert into public.events (id, catalog_id, name, kind)
+  values ('00000000-0000-4000-a000-0000000000e2', '00000000-0000-4000-a000-0000000000c1', 'Member event', 'tournoi');
+  select count(*) into n from public.events;
+  if n <> 2 then raise exception 'FAIL 7: creator should see 2 events, sees %', n; end if;
+  raise notice 'ok 7 (spoofed event creator rejected, own event created and visible)';
+end $$;
+
+-- From here on: u_admin.
+set local request.jwt.claim.sub = '00000000-0000-4000-a000-000000000001';
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-a000-000000000001","role":"authenticated"}';
+
+-- Case 7b: admin catalog insert with a foreign created_by is rejected.
+do $$
+begin
+  begin
+    insert into public.catalogs (id, name, created_by)
+    values ('00000000-0000-4000-a000-0000000000c4', 'spoof', '00000000-0000-4000-a000-000000000002');
+    raise exception 'FAIL 7b: catalog inserted with a foreign created_by';
+  exception when insufficient_privilege then
+    null;
+  end;
+  insert into public.catalogs (id, name) values ('00000000-0000-4000-a000-0000000000c3', 'Admin catalog');
+  raise notice 'ok 7b (spoofed catalog creator rejected, default creator accepted)';
+end $$;
+
+-- Case 8: admin can rename and disable another user through the API.
+do $$
+declare n int;
+begin
+  update public.profiles set display_name = 'Member (renamed by admin)', disabled = true
+  where id = '00000000-0000-4000-a000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL 8: admin could not update another profile'; end if;
+  raise notice 'ok 8 (admin renamed and disabled u_member)';
+end $$;
+
+-- Case 9: the disabled member loses all access.
+set local request.jwt.claim.sub = '00000000-0000-4000-a000-000000000002';
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-a000-000000000002","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  select count(*) into n from public.events;
+  if n <> 0 then raise exception 'FAIL 9: disabled member sees % events', n; end if;
+  select count(*) into n from public.sales;
+  if n <> 0 then raise exception 'FAIL 9: disabled member sees % sales', n; end if;
+  select count(*) into n from public.catalogs;
+  if n <> 0 then raise exception 'FAIL 9: disabled member sees % catalogs', n; end if;
+  select count(*) into n from public.profiles where id <> auth.uid();
+  if n <> 0 then raise exception 'FAIL 9: disabled member sees % other profiles', n; end if;
+  raise notice 'ok 9 (disabled member sees 0 events, sales, catalogs, other profiles)';
 end $$;
 
 reset role;
