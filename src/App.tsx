@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { AppProvider } from './state/AppContext';
+import { AuthProvider, useAuth } from './state/AuthContext';
+import { LoginView } from './views/LoginView';
 import { TabBar, type TabId } from './components/TabBar';
 import { ChromeProvider } from './components/ui/chrome';
 import { Drawer } from './components/ui/Drawer';
@@ -43,10 +45,23 @@ function Shell() {
   );
 }
 
-export default function App() {
+function Gate() {
+  const { status } = useAuth();
+  if (status === 'loading') {
+    return <p style={{ textAlign: 'center', marginTop: '40vh' }}>Chargement…</p>;
+  }
+  if (status === 'signedOut') return <LoginView />;
   return (
     <AppProvider>
       <Shell />
     </AppProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Gate />
+    </AuthProvider>
   );
 }

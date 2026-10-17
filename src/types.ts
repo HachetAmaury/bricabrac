@@ -47,3 +47,10 @@ export type SaleEvent = {
   cashFloat?: number; // fond de caisse in cents (starting cash)
   cashCount?: CashCount; // end-of-day cash count
 };
+
+export type Profile = {
+  id: string;
+  displayName: string;
+  isAdmin: boolean;
+  disabled: boolean;
+};
