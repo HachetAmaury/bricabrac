@@ -96,7 +96,8 @@ function Shell() {
       catalogName: 'Catalogue importé',
       sellerId: session!.user.id
     });
-    await refresh();
+    // Keys are already cleared: a refresh failure must not surface as an import error.
+    await refresh().catch(() => {});
     setLegacy(false);
   };
 

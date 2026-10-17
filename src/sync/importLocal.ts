@@ -14,6 +14,8 @@ export type ImportRows = {
   events: Omit<EventRow, 'updated_at' | 'created_by'>[];
   eventItems: EventItemRow[];
   sales: Omit<SaleRow, 'created_at'>[];
+  /** Applied after sales: the server refuses event_items/sales on an already-locked event. */
+  locks: { id: string; locked_at: string }[];
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
@@ -57,11 +59,12 @@ export function buildImport(legacy: Backup, opts: ImportOpts): ImportRows {
   const eventRows: ImportRows['events'] = [];
   const eventItems: EventItemRow[] = [];
   const sales: ImportRows['sales'] = [];
+  const locks: ImportRows['locks'] = [];
 
   for (const e of legacy.events) {
     const id = remap(e.id);
-    const lockedAt = e.locked ? e.createdAt : null;
-    const ev: SaleEvent = { ...e, id, catalogId: opts.catalogId, lockedAt, locked: lockedAt !== null };
+    if (e.locked) locks.push({ id, locked_at: new Date(e.createdAt).toISOString() });
+    const ev: SaleEvent = { ...e, id, catalogId: opts.catalogId, lockedAt: null, locked: false };
     eventRows.push(eventToRow(ev));
     for (const itemId of new Set(e.enabledItemIds.map(remap))) {
       if (itemIds.has(itemId)) eventItems.push({ event_id: id, item_id: itemId });
@@ -84,11 +87,15 @@ export function buildImport(legacy: Backup, opts: ImportOpts): ImportRows {
     events: eventRows,
     eventItems,
     sales,
+    locks,
   };
 }
 
 type InsertClient = {
-  from: (table: string) => { insert: (rows: never) => PromiseLike<{ error: unknown }> };
+  from: (table: string) => {
+    insert: (rows: never) => PromiseLike<{ error: unknown }>;
+    update: (values: never) => { eq: (col: string, val: string) => PromiseLike<{ error: unknown }> };
+  };
 };
 
 /** Inserts parents before children; keeps legacy keys unless every insert succeeded. */
@@ -109,5 +116,9 @@ export async function runImport(client: unknown, legacy: Backup, opts: ImportOpt
   await insertAll('events', out.events);
   await insertAll('event_items', out.eventItems);
   await insertAll('sales', out.sales);
+  for (const l of out.locks) {
+    const { error } = await db.from('events').update({ locked_at: l.locked_at } as never).eq('id', l.id);
+    if (error) throw error;
+  }
   clearLegacyData();
 }

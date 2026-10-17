@@ -65,13 +65,16 @@ describe('buildImport', () => {
     const l = legacy({ locked: true });
     (l as { events: { sales: Record<string, unknown>[] }[] }).events[0].sales[0].sellerId = 'someone-else';
     const out = buildImport(l, opts);
-    expect(out.events[0].locked_at).toBe(new Date(1_700_000_000_000).toISOString());
+    expect(out.events[0].locked_at).toBeNull();
+    expect(out.locks).toEqual([{ id: out.events[0].id, locked_at: new Date(1_700_000_000_000).toISOString() }]);
     expect(out.sales.every((s) => s.seller_id === 'seller-uuid')).toBe(true);
     expect('created_by' in out.events[0]).toBe(false);
   });
 
   it('leaves locked_at null on unlocked events', () => {
-    expect(buildImport(legacy(), opts).events[0].locked_at).toBeNull();
+    const out = buildImport(legacy(), opts);
+    expect(out.events[0].locked_at).toBeNull();
+    expect(out.locks).toEqual([]);
   });
 
   it('drops enabledItemIds that point at unknown items', () => {
@@ -119,6 +122,12 @@ describe('runImport', () => {
           calls.push({ table, rows });
           return { error: table === failOn ? { message: 'boom' } : null };
         }),
+        update: (values: unknown) => ({
+          eq: async (_c: string, id: string) => {
+            calls.push({ table: `update:${table}`, rows: { values, id } });
+            return { error: null };
+          },
+        }),
       }),
     };
     return { client: client as never, calls };
@@ -137,6 +146,20 @@ describe('runImport', () => {
     ]);
     expect(calls[0].rows).toEqual({ id: opts.catalogId, name: 'Catalogue importé' });
     for (const k of Object.values(LEGACY_KEYS)) expect(localStorage.getItem(k)).toBeNull();
+  });
+
+  it('applies locks last, after sales', async () => {
+    const { client, calls } = fake();
+    await runImport(client, legacy({ locked: true }), opts);
+    expect(calls.map((c) => c.table)).toEqual([
+      'catalogs', 'categories', 'items', 'events', 'event_items', 'sales', 'update:events',
+    ]);
+    const ev = (calls[3].rows as { id: string; locked_at: unknown }[])[0];
+    expect(ev.locked_at).toBeNull();
+    expect(calls[6].rows).toEqual({
+      values: { locked_at: new Date(1_700_000_000_000).toISOString() },
+      id: ev.id,
+    });
   });
 
   it('chunks sales by 500', async () => {
