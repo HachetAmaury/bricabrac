@@ -8,13 +8,30 @@ const sale = (id: string, timestamp: number, event_id: string) => ({
   id, event_id, timestamp, seller_id: 'u1', lines: [], total: 0, cash_given: null, change: null, created_at: iso,
 });
 
-function fakeClient(tables: Record<string, unknown[]>, failing?: string) {
+type Call = { table: string; order: string[]; range: [number, number] };
+
+/** Serves each table page by page, as PostgREST does with `.order().range()`. */
+function fakeClient(tables: Record<string, unknown[]>, failing?: string, calls: Call[] = []) {
   return {
     from: (t: string) => ({
-      select: () =>
-        Promise.resolve(
-          t === failing ? { data: null, error: { message: 'boom' } } : { data: tables[t] ?? [], error: null },
-        ),
+      select: () => {
+        const order: string[] = [];
+        const q = {
+          order: (col: string) => {
+            order.push(col);
+            return q;
+          },
+          range: (from: number, to: number) => {
+            calls.push({ table: t, order: [...order], range: [from, to] });
+            return Promise.resolve(
+              t === failing
+                ? { data: null, error: { message: 'boom' } }
+                : { data: (tables[t] ?? []).slice(from, to + 1), error: null },
+            );
+          },
+        };
+        return q;
+      },
     }),
   } as unknown as SupabaseClient<Database>;
 }
@@ -37,6 +54,19 @@ describe('fetchAll', () => {
     expect(snap.events).toHaveLength(1);
     expect(snap.events[0].enabledItemIds).toEqual(['i1']);
     expect(snap.events[0].sales.map((s) => s.id)).toEqual(['s1', 's2']);
+  });
+
+  it('pages past the 1000-row cap and keeps sales in timestamp order', async () => {
+    const many = Array.from({ length: 1005 }, (_, i) => sale(`s${String(i).padStart(4, '0')}`, i, 'e1'));
+    const calls: Call[] = [];
+    const snap = await fetchAll(fakeClient({ ...tables, sales: many }, undefined, calls));
+    const salesCalls = calls.filter((c) => c.table === 'sales');
+    expect(salesCalls.map((c) => c.range)).toEqual([[0, 999], [1000, 1999]]);
+    expect(salesCalls[0].order).toEqual(['timestamp', 'id']);
+    expect(snap.events[0].sales).toHaveLength(1005);
+    expect(snap.events[0].sales.map((s) => s.id)).toEqual(many.map((s) => s.id));
+    // A table under the cap is read in a single page.
+    expect(calls.filter((c) => c.table === 'items')).toHaveLength(1);
   });
 
   it('rejects on a PostgREST error', async () => {
