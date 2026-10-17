@@ -16,6 +16,11 @@ const h = vi.hoisted(() => {
   const channels: FakeChannel[] = [];
   return {
     fetchAll: vi.fn(),
+    notify: vi.fn(),
+    auth: {
+      signOut: vi.fn(),
+      profile: null as null | { id: string; displayName: string; isAdmin: boolean; disabled: boolean },
+    },
     mirrorCatalog: vi.fn(),
     mirrorCategories: vi.fn(),
     mirrorEvents: vi.fn(),
@@ -56,15 +61,16 @@ vi.mock('../sync/writes', () => ({
   mirrorCategories: h.mirrorCategories,
   mirrorEvents: h.mirrorEvents,
 }));
+vi.mock('../lib/notify', () => ({ notify: h.notify }));
 vi.mock('./AuthContext', () => ({
   useAuth: () => ({
     status: 'signedIn',
     session: { user: { id: 'u1' } },
     userId: 'u1',
-    profile: { id: 'u1', displayName: 'Nat', isAdmin: false, disabled: false },
+    profile: h.auth.profile,
     lastError: null,
-    signIn: vi.fn(),
-    signOut: vi.fn(),
+    signIn: () => Promise.resolve(null),
+    signOut: h.auth.signOut,
   }),
 }));
 
@@ -126,6 +132,9 @@ beforeEach(() => {
   h.mirrorCatalog.mockReset().mockResolvedValue(undefined);
   h.mirrorCategories.mockReset().mockResolvedValue(undefined);
   h.mirrorEvents.mockReset().mockResolvedValue(undefined);
+  h.notify.mockReset();
+  h.auth.signOut.mockReset().mockResolvedValue(undefined);
+  h.auth.profile = { id: 'u1', displayName: 'Nat', isAdmin: false, disabled: false };
 });
 
 afterEach(() => {
@@ -172,7 +181,7 @@ describe('AppProvider', () => {
   it('mirrors a local change with the next state, and skips no-op actions', async () => {
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
-    act(() => app.dispatchCatalog({ type: 'edit', id: 'i1', name: 'Gaufre', price: 300 }));
+    await act(async () => app.dispatchCatalog({ type: 'edit', id: 'i1', name: 'Gaufre', price: 300 }));
     expect(h.mirrorCatalog).toHaveBeenCalledTimes(1);
     const [client, action, next] = h.mirrorCatalog.mock.calls[0];
     expect(client).toBe(h.fakeClient);
@@ -181,7 +190,7 @@ describe('AppProvider', () => {
     expect(app.allItems[0].name).toBe('Gaufre');
 
     // Unknown id: the reducer returns the same reference, so nothing is mirrored.
-    act(() => app.dispatchCatalog({ type: 'archive', id: 'nope' }));
+    await act(async () => app.dispatchCatalog({ type: 'archive', id: 'nope' }));
     expect(h.mirrorCatalog).toHaveBeenCalledTimes(1);
   });
 
@@ -195,16 +204,57 @@ describe('AppProvider', () => {
     expect(next[0].sales).toEqual([]);
   });
 
-  it('keeps the local change and goes offline when a mirror rejects', async () => {
+  it('rolls a failed non-sale write back with a refetch and tells the user', async () => {
     h.fetchAll.mockResolvedValue(snapshot);
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     h.mirrorEvents.mockRejectedValue(new Error('network'));
     await mount();
     await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' }));
-    expect(app.events[0].name).toBe('Finale');
-    expect(app.syncStatus).toBe('offline');
+    expect(h.notify).toHaveBeenCalledWith('Modification non enregistrée. Vérifiez le réseau.');
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    expect(app.events[0].name).toBe('Tournoi');
     expect(err).toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it('offline non-sale action is refused and not applied', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await act(async () => {
+      app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' });
+      // One gesture that dispatches twice shows one message.
+      app.dispatchCatalog({ type: 'archive', id: 'i1' });
+    });
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    expect(h.notify).toHaveBeenCalledWith('Hors ligne : action impossible.');
+    expect(app.events[0].name).toBe('Tournoi');
+    expect(app.allItems[0].archived).toBe(false);
+    expect(h.mirrorEvents).not.toHaveBeenCalled();
+    expect(h.mirrorCatalog).not.toHaveBeenCalled();
+    // Selling still works offline.
+    await act(async () => app.dispatchEvents({ type: 'undoMyLast', eventId: 'e1', sellerId: 'u1' }));
+    expect(app.events[0].sales).toEqual([]);
+    expect(h.mirrorEvents).toHaveBeenCalledTimes(1);
+    online.mockRestore();
+  });
+
+  it('two mirrors run in order: the second starts after the first settled', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    let finishCreate!: () => void;
+    const started: string[] = [];
+    h.mirrorEvents.mockImplementation((_c: unknown, a: { type: string }) => {
+      started.push(a.type);
+      return a.type === 'create' ? new Promise<void>((r) => (finishCreate = r)) : Promise.resolve();
+    });
+    await act(async () => {
+      app.dispatchEvents({ type: 'create', id: 'e2', catalogId: 'c1', name: 'Finale', kind: 'autre', enabledItemIds: [], createdAt: 5 });
+      app.dispatchEvents({ type: 'toggleItem', eventId: 'e2', itemId: 'i1' });
+    });
+    expect(started).toEqual(['create']);
+    await act(async () => finishCreate());
+    expect(started).toEqual(['create', 'toggleItem']);
   });
 
   it('starts in syncing until the first fetch settles', async () => {
@@ -224,11 +274,67 @@ describe('AppProvider', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     h.mirrorEvents.mockRejectedValueOnce(new Error('network'));
     await mount();
+    // The rollback refetch fails too: still offline.
+    h.fetchAll.mockRejectedValueOnce(new Error('offline'));
     await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' }));
     expect(app.syncStatus).toBe('offline');
     await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale 2' }));
     expect(app.syncStatus).toBe('online');
     err.mockRestore();
+  });
+
+  describe('initial fetch retry', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const tick = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    it('retries a failed first fetch after 2, 4 and 8 s and stops on success', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      h.fetchAll
+        .mockRejectedValueOnce(new Error('lie-fi'))
+        .mockRejectedValueOnce(new Error('lie-fi'))
+        .mockRejectedValueOnce(new Error('lie-fi'))
+        .mockResolvedValue(snapshot);
+      await mount();
+      expect(h.fetchAll).toHaveBeenCalledTimes(1);
+      await tick(1_999);
+      expect(h.fetchAll).toHaveBeenCalledTimes(1);
+      await tick(1);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      await tick(4_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(3);
+      await tick(8_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(4);
+      expect(app.syncStatus).toBe('online');
+      await tick(60_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(4);
+      err.mockRestore();
+    });
+
+    it('gives up after 5 attempts', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      h.fetchAll.mockRejectedValue(new Error('lie-fi'));
+      await mount();
+      await tick(2_000 + 4_000 + 8_000 + 16_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(5);
+      await tick(120_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(5);
+      err.mockRestore();
+    });
+
+    it('does not retry while the browser is offline', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      h.fetchAll.mockRejectedValue(new Error('offline'));
+      await mount();
+      await tick(60_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(1);
+      online.mockRestore();
+      err.mockRestore();
+    });
   });
 });
 
@@ -242,8 +348,11 @@ describe('AppProvider outbox', () => {
       ]),
     );
   const inserts: unknown[] = [];
+  const deletes: unknown[] = [];
+  const order: string[] = [];
   const profileQueries: unknown[] = [];
   let profileDisabled = false;
+  let deleteResult: unknown = { data: [], error: null, status: 200, statusText: 'OK' };
   const serverReplies = (result: unknown) =>
     h.fakeClient.from.mockImplementation((table: string) =>
       table === 'profiles'
@@ -260,14 +369,27 @@ describe('AppProvider outbox', () => {
         : {
             insert: (row: unknown) => {
               inserts.push(row);
+              order.push('insert');
               return Promise.resolve(result);
             },
+            delete: () => ({
+              eq: (_c: string, id: unknown) => ({
+                select: () => {
+                  deletes.push(id);
+                  order.push('delete');
+                  return Promise.resolve(deleteResult);
+                },
+              }),
+            }),
           },
     );
   beforeEach(() => {
     inserts.length = 0;
+    deletes.length = 0;
+    order.length = 0;
     profileQueries.length = 0;
     profileDisabled = false;
+    deleteResult = { data: [], error: null, status: 200, statusText: 'OK' };
     h.fakeClient.auth.refreshSession.mockClear();
   });
   const pgErr = (code: string, message: string, status: number) => ({
@@ -296,11 +418,17 @@ describe('AppProvider outbox', () => {
     // The first flush runs after the first hydrate (fresh events for classification).
     expect(inserts).toEqual([expect.objectContaining({ id: 's9', event_id: 'e1' })]);
 
+    h.fetchAll.mockImplementation(() => {
+      order.push('fetch');
+      return Promise.resolve(snapshot);
+    });
+    order.length = 0;
     await act(async () => {
       await app.refresh();
     });
     expect(h.fetchAll).toHaveBeenCalledTimes(2);
-    // Later refreshes flush first, then fetch.
+    // Every refresh fetches and hydrates first, then flushes against the fresh events.
+    expect(order).toEqual(['fetch', 'insert']);
     expect(inserts).toHaveLength(2);
     expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's9']);
     expect(JSON.parse(localStorage.getItem(KEYS.events)!)[0].sales.map((s: { id: string }) => s.id)).toEqual(['s1', 's9']);
@@ -317,7 +445,7 @@ describe('AppProvider outbox', () => {
     expect(app.rejected).toEqual([]);
   });
 
-  it('rolls back a rejected sale and lists it until dismissed', async () => {
+  it('disabled → pending rejected as disabled, then signOut after dismiss', async () => {
     seed();
     profileDisabled = true;
     serverReplies(pgErr('42501', 'new row violates row-level security policy for table "sales"', 403));
@@ -327,8 +455,118 @@ describe('AppProvider outbox', () => {
     expect(app.rejected).toEqual([expect.objectContaining({ sale: pendingSale, eventId: 'e1', reason: 'disabled' })]);
     expect(app.outbox.pending).toBe(0);
     expect(profileQueries).toEqual(['u1']);
+    // The dialog is up: no sign-out until the user saw (and could export) the list.
+    expect(h.auth.signOut).not.toHaveBeenCalled();
     act(() => app.dismissRejected());
+    expect(h.auth.signOut).toHaveBeenCalledWith('Compte désactivé.');
+    // The list survives the sign-out, stored per account.
+    expect(JSON.parse(localStorage.getItem('sync:rejected:u1')!)).toHaveLength(1);
+  });
+
+  it('a disabled profile rejects the pending outbox as disabled, then signs out on OK', async () => {
+    seed();
+    h.auth.profile = { id: 'u1', displayName: 'Nat', isAdmin: false, disabled: true };
+    serverReplies({ data: null, error: { message: 'TypeError: Failed to fetch', code: '' }, status: 0, statusText: '' });
+    h.fetchAll.mockRejectedValue(new Error('offline'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await mount();
+    expect(app.rejected.map((r) => [r.sale.id, r.reason])).toEqual([['s9', 'disabled']]);
+    expect(app.outbox.pending).toBe(0);
+    expect(h.auth.signOut).not.toHaveBeenCalled();
+    act(() => app.dismissRejected());
+    expect(h.auth.signOut).toHaveBeenCalledWith('Compte désactivé.');
+    err.mockRestore();
+  });
+
+  it('a disabled profile with nothing pending signs out at once', async () => {
+    h.auth.profile = { id: 'u1', displayName: 'Nat', isAdmin: false, disabled: true };
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(h.auth.signOut).toHaveBeenCalledWith('Compte désactivé.');
+  });
+
+  it('a snapshot showing the own profile disabled starts the disabled flow', async () => {
+    h.fetchAll.mockResolvedValue({
+      ...snapshot,
+      profiles: [{ id: 'u1', displayName: 'Nat', isAdmin: false, disabled: true }],
+    });
+    await mount();
+    expect(h.auth.signOut).toHaveBeenCalledWith('Compte désactivé.');
+  });
+
+  it('an offline undo is held, not dropped, when the event was locked meanwhile', async () => {
+    // Cache: event unlocked. Server: locked since then, so the delete matches 0 rows.
+    localStorage.setItem(KEYS.events, JSON.stringify([serverEvent]));
+    localStorage.setItem(
+      'sync:outbox:u1',
+      JSON.stringify([{ id: 'o1', version: 1, kind: 'deleteSale', eventId: 'e1', saleId: 's1', status: 'pending', attempts: 0 }]),
+    );
+    serverReplies({ data: null, error: null, status: 201, statusText: 'Created' });
+    h.fetchAll.mockResolvedValue({ ...snapshot, events: [{ ...serverEvent, locked: true, lockedAt: 100 }] });
+    await mount();
+    expect(deletes).toEqual(['s1']);
+    expect(app.outbox).toEqual({ pending: 0, held: 1, flushing: false });
     expect(app.rejected).toEqual([]);
+    // The undo still shows locally.
+    expect(app.events[0].sales).toEqual([]);
+  });
+
+  it('unlock event with held entry → flush called', async () => {
+    const late = { ...pendingSale, timestamp: 200 };
+    localStorage.setItem(
+      'sync:outbox:u1',
+      JSON.stringify([{ id: 'o1', version: 1, kind: 'insertSale', eventId: 'e1', sale: late, status: 'held-locked', attempts: 0 }]),
+    );
+    serverReplies(pgErr('42501', 'new row violates row-level security policy for table "sales"', 403));
+    h.fetchAll.mockResolvedValue({ ...snapshot, events: [{ ...serverEvent, locked: true, lockedAt: 100 }] });
+    await mount();
+    expect(inserts).toHaveLength(1);
+    expect(app.outbox.held).toBe(1);
+
+    serverReplies({ data: null, error: null, status: 201, statusText: 'Created' });
+    const events = h.channels[0].regs.find((r) => r.filter.table === 'events')!;
+    await act(async () =>
+      events.cb({
+        table: 'events',
+        eventType: 'UPDATE',
+        old: {},
+        new: {
+          id: 'e1', catalog_id: 'c1', name: 'Tournoi', kind: 'tournoi', created_at: new Date(1).toISOString(),
+          updated_at: '', created_by: null, locked_at: null, cash_float: null, cash_count: null,
+        },
+      }),
+    );
+    expect(inserts).toHaveLength(2);
+    expect(app.outbox).toEqual({ pending: 0, held: 0, flushing: false });
+    expect(app.events[0].locked).toBe(false);
+  });
+
+  it('sale sent during refresh is still present after hydrate', async () => {
+    const real = await vi.importActual<typeof import('../sync/writes')>('../sync/writes');
+    h.mirrorEvents.mockImplementation(real.mirrorEvents);
+    serverReplies({ data: null, error: null, status: 201, statusText: 'Created' });
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    let resolveFetch!: (s: Snapshot) => void;
+    h.fetchAll.mockImplementation(() => new Promise<Snapshot>((r) => (resolveFetch = r)));
+    let refreshed!: Promise<void>;
+    act(() => {
+      refreshed = app.refresh();
+    });
+    // Recorded and sent while the fetch runs: the snapshot below predates it.
+    await act(async () =>
+      app.dispatchEvents({
+        type: 'recordSale', eventId: 'e1', saleId: 's7', sellerId: 'u1',
+        cart: [{ itemId: 'i1', qty: 1 }], catalog: [itemA], now: 50,
+      }),
+    );
+    expect(inserts).toEqual([expect.objectContaining({ id: 's7' })]);
+    expect(app.outbox.pending).toBe(0);
+    await act(async () => {
+      resolveFetch(snapshot);
+      await refreshed;
+    });
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's7']);
   });
 
   it('keeps the sale and refreshes the session on an expired JWT', async () => {

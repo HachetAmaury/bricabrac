@@ -55,6 +55,8 @@ export interface Outbox {
   entries(): OutboxEntry[];
   rejected(): RejectedSale[];
   dismissRejected(): void;
+  /** Moves every queued entry to `rejected` with `reason` (e.g. the account was disabled). Returns how many. */
+  rejectAll(reason: RejectReason): number;
   flush(client: SupabaseClient<Database>, ctx: FlushContext): Promise<FlushResult>;
   flushing(): boolean;
   /** Also keeps this outbox in sync with other tabs while anyone listens. */
@@ -383,6 +385,12 @@ export function createOutbox(storageKey = 'sync:outbox', rejectedKey = 'sync:rej
       for (const r of rejected) removedRejected.add(r.opId);
       rejected = [];
       commit();
+    },
+    rejectAll(reason) {
+      const all = entries;
+      for (const e of all) reject(e, reason);
+      if (all.length > 0) commit();
+      return all.length;
     },
     flush(client, ctx) {
       if (busy && current) return current;

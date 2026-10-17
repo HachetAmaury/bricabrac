@@ -23,6 +23,7 @@ import { fetchAll } from '../sync/fetch';
 import { mirrorCatalog, mirrorCatalogs, mirrorCategories, mirrorEvents, type CatalogsAction } from '../sync/writes';
 import { nextScope, useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
 import { createOutbox, OutboxOfflineError, type OutboxEntry, type RejectedSale } from '../sync/outbox';
+import { notify } from '../lib/notify';
 
 export type SyncStatus = 'online' | 'offline' | 'syncing';
 
@@ -81,13 +82,33 @@ function apply<S, A>(
   return { prev, next };
 }
 
+// Actions that only apply server state (hydrate, Realtime): never refused, nothing to mirror.
+const SERVER_ITEM_ACTIONS = new Set<string>(['hydrate', 'upsert', 'remove']);
+const SERVER_EVENT_ACTIONS = new Set<string>([
+  'upsertEvent',
+  'removeEvent',
+  'upsertSale',
+  'removeSale',
+  'setEnabledItems',
+  'hydrate'
+]);
+// Sales go through the outbox and work offline.
+const SALE_ACTIONS = new Set<string>(['recordSale', 'undoMyLast']);
+
+const MSG_OFFLINE = 'Hors ligne : action impossible.';
+const MSG_NOT_SAVED = 'Modification non enregistrée. Vérifiez le réseau.';
+const MSG_DISABLED = 'Compte désactivé.';
+
+/** Initial refresh retries after a failure: 2, 4, 8, 16 s (5 attempts in all). */
+export const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000, 16_000];
+
 function lastSaleIdOf(events: SaleEvent[], eventId: string, sellerId: string): string | undefined {
   const sales = events.find((e) => e.id === eventId)?.sales ?? [];
   return sales[latestSaleIndex(sales, sellerId)]?.id;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { userId } = useAuth();
+  const { userId, profile, signOut } = useAuth();
 
   // Initial state comes from the last server snapshot so the app renders
   // instantly (and offline); the mount effect below replaces it.
@@ -111,6 +132,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Per account: pending sales of one account are never sent under another's session.
   const [outbox] = useState(() => createOutbox(`sync:outbox:${userId}`, `sync:rejected:${userId}`));
   const [outboxVersion, bumpOutbox] = useReducer((n: number) => n + 1, 0);
+  // The server said this account is disabled: pending sales become rejected, then sign out.
+  const [disabled, setDisabled] = useState(false);
 
   const itemsRef = useRef(allItems);
   const categoriesRef = useRef(allCategories);
@@ -144,7 +167,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!userId) return false;
         try {
           const { data, error } = await supabase.from('profiles').select('disabled').eq('id', userId).maybeSingle();
-          return !error && data?.disabled === true;
+          const disabled = !error && data?.disabled === true;
+          if (disabled && mounted.current) setDisabled(true);
+          return disabled;
         } catch {
           return false;
         }
@@ -183,18 +208,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [outbox]
   );
 
-  // Until the first snapshot lands, local events may be an empty or stale
-  // cache: the outbox would misread "event not found". So the very first
-  // flush runs after the first hydrate; later refreshes flush first so the
-  // snapshot already contains our sales.
+  // Sales sent while a fetch runs may be missing from its snapshot: their ids
+  // are collected here (by the outbox listener) and replayed after the hydrate.
+  const refreshing = useRef(false);
+  const sentDuringRefresh = useRef(new Set<string>());
+  // True once a snapshot has been applied (the initial retry loop stops there).
   const hydrated = useRef(false);
+
+  // Order: fetch, hydrate, replay the queue, then flush against the fresh
+  // events (a lock that landed meanwhile holds an undo instead of dropping it).
   const refreshOnce = useCallback(async () => {
     setSyncStatus('syncing');
+    refreshing.current = true;
+    sentDuringRefresh.current.clear();
     try {
-      if (hydrated.current && outbox.entries().length > 0) await flushOutbox();
       const earlier = outbox.entries();
       const snap = await fetchAll(supabase);
       if (!mounted.current) return;
+      const beforeHydrate = eventsRef.current;
       apply(itemsRef, catalogReducer, rawDispatchCatalog, { type: 'hydrate', items: snap.items });
       apply(categoriesRef, categoriesReducer, rawDispatchCategories, {
         type: 'hydrate',
@@ -202,23 +233,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'hydrate', events: snap.events });
       // Same tick as the hydrate, so the cache is never saved without them.
+      // Sent sales first: a queued undo replayed after them still wins.
+      for (const saleId of sentDuringRefresh.current) {
+        for (const ev of beforeHydrate) {
+          const sale = ev.sales.find((x) => x.id === saleId);
+          if (sale) apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'upsertSale', eventId: ev.id, sale });
+        }
+      }
+      sentDuringRefresh.current.clear();
+      refreshing.current = false;
       reapplyOutbox(earlier);
       snapshotAt.current = Date.now();
+      hydrated.current = true;
       setCatalogs(snap.catalogs);
       setProfiles(snap.profiles);
       // Resubscribes Realtime only when the snapshot covers other ids.
       const scope = { eventIds: snap.events.map((e) => e.id), catalogIds: snap.catalogs.map((c) => c.id) };
       setRealtimeScope((prev) => nextScope(prev, scope));
       setSyncStatus('online');
-      if (!hydrated.current) {
-        hydrated.current = true;
-        await flushOutbox();
+      if (snap.profiles.some((p) => p.id === userId && p.disabled)) {
+        setDisabled(true);
+        return;
       }
+      if (outbox.entries().length > 0) await flushOutbox();
     } catch (err) {
       console.error('[sync] fetch failed, using cache', err);
       if (mounted.current) setSyncStatus('offline');
+    } finally {
+      refreshing.current = false;
+      sentDuringRefresh.current.clear();
     }
-  }, [flushOutbox, outbox, reapplyOutbox]);
+  }, [flushOutbox, outbox, reapplyOutbox, userId]);
 
   // Wake fires visibilitychange + online together and memberships change per
   // row: one fetch at a time, and calls during it fold into a single rerun so
@@ -248,7 +293,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // later hydrate is not second-guessed.
   const rolledBack = useRef(new Set<string>());
   useEffect(() => {
+    let known = outbox.entries();
     const onChange = () => {
+      // An entry that left the queue without being rejected reached the server.
+      const current = new Set(outbox.entries().map((e) => e.id));
+      const rejectedOps = new Set(outbox.rejected().map((r) => r.opId));
+      for (const e of known) {
+        if (current.has(e.id) || rejectedOps.has(e.id)) continue;
+        if (refreshing.current && e.version === 1 && e.kind === 'insertSale') sentDuringRefresh.current.add(e.sale.id);
+      }
+      known = outbox.entries();
       for (const r of outbox.rejected()) {
         const key = `${r.eventId}:${r.sale.id}`;
         if (r.kind !== 'insertSale' || rolledBack.current.has(key)) continue;
@@ -271,10 +325,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void outboxVersion;
     return outbox.rejected();
   }, [outbox, outboxVersion]);
-  const dismissRejected = useCallback(() => outbox.dismissRejected(), [outbox]);
+  // Disabled: the list stays stored (export later on this phone); OK signs out.
+  const dismissRejected = useCallback(() => {
+    if (disabled) void signOut(MSG_DISABLED);
+    else outbox.dismissRejected();
+  }, [disabled, outbox, signOut]);
 
   useEffect(() => {
-    if (userId) void refresh();
+    if (profile?.disabled) setDisabled(true);
+  }, [profile]);
+  useEffect(() => {
+    if (!disabled) return;
+    outbox.rejectAll('disabled');
+    // Nothing to show: sign out at once. Otherwise the dialog's OK does it.
+    if (outbox.rejected().length === 0) void signOut(MSG_DISABLED);
+  }, [disabled, outbox, signOut]);
+
+  // First fetch, retried with backoff while online until a snapshot lands.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = async (n: number) => {
+      await refresh();
+      if (cancelled || hydrated.current || n >= INITIAL_RETRY_DELAYS_MS.length) return;
+      timer = setTimeout(() => {
+        if (!cancelled && !hydrated.current && navigator.onLine !== false) void attempt(n + 1);
+      }, INITIAL_RETRY_DELAYS_MS[n]);
+    };
+    void attempt(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [userId, refresh]);
 
   // A write that reached the server proves we're back online; leave 'syncing'
@@ -288,28 +371,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (mounted.current) setSyncStatus('offline');
   }, []);
 
+  // Non-sale writes need the network: refused offline (one message per
+  // gesture), sent one at a time in order, and rolled back by a refetch when
+  // the server did not take them.
+  const offlineNotified = useRef(false);
+  const refuseOffline = useCallback(() => {
+    if (navigator.onLine !== false) return false;
+    if (!offlineNotified.current) {
+      offlineNotified.current = true;
+      queueMicrotask(() => {
+        offlineNotified.current = false;
+      });
+      notify(MSG_OFFLINE);
+    }
+    return true;
+  }, []);
+  const mirrorQueue = useRef<Promise<void>>(Promise.resolve());
+  const queueMirror = useCallback(
+    (write: () => Promise<void>) => {
+      mirrorQueue.current = mirrorQueue.current.then(write).then(onMirrorOk, (err: unknown) => {
+        onMirrorError(err);
+        if (!mounted.current) return;
+        notify(MSG_NOT_SAVED);
+        void refresh();
+      });
+    },
+    [onMirrorOk, onMirrorError, refresh]
+  );
+
   const dispatchCatalog = useCallback(
     (a: CatalogAction) => {
+      const local = !SERVER_ITEM_ACTIONS.has(a.type);
+      if (local && refuseOffline()) return;
       const { prev, next } = apply(itemsRef, catalogReducer, rawDispatchCatalog, a);
-      if (prev !== next) mirrorCatalog(supabase, a, next).then(onMirrorOk, onMirrorError);
+      if (prev === next) return;
+      if (local) queueMirror(() => mirrorCatalog(supabase, a, next));
+      else mirrorCatalog(supabase, a, next).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorOk, onMirrorError]
+    [onMirrorOk, onMirrorError, queueMirror, refuseOffline]
   );
   const dispatchCategories = useCallback(
     (a: CategoriesAction) => {
+      const local = !SERVER_ITEM_ACTIONS.has(a.type);
+      if (local && refuseOffline()) return;
       const { prev, next } = apply(categoriesRef, categoriesReducer, rawDispatchCategories, a);
-      if (prev !== next) mirrorCategories(supabase, a, next).then(onMirrorOk, onMirrorError);
+      if (prev === next) return;
+      if (local) queueMirror(() => mirrorCategories(supabase, a, next));
+      else mirrorCategories(supabase, a, next).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorOk, onMirrorError]
+    [onMirrorOk, onMirrorError, queueMirror, refuseOffline]
   );
   const dispatchEvents = useCallback(
     (a: EventsAction) => {
+      const queued = !SERVER_EVENT_ACTIONS.has(a.type) && !SALE_ACTIONS.has(a.type);
+      if (queued && refuseOffline()) return;
       const removedSaleId =
         a.type === 'undoMyLast' ? lastSaleIdOf(eventsRef.current, a.eventId, a.sellerId) : undefined;
       const { prev, next } = apply(eventsRef, eventsReducer, rawDispatchEvents, a);
-      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId, outbox, flushExtras()).then(onMirrorOk, onMirrorError);
+      if (prev === next) return;
+      const write = () => mirrorEvents(supabase, a, next, removedSaleId, outbox, flushExtras());
+      if (queued) queueMirror(write);
+      else write().then(onMirrorOk, onMirrorError);
     },
-    [onMirrorOk, onMirrorError, outbox, flushExtras]
+    [onMirrorOk, onMirrorError, outbox, flushExtras, queueMirror, refuseOffline]
+  );
+
+  // An event unlocked elsewhere: retry the sales it was holding.
+  const onRealtimeEvent = useCallback(
+    (a: EventsAction) => {
+      dispatchEvents(a);
+      if (
+        a.type === 'upsertEvent' &&
+        a.event.lockedAt === null &&
+        outbox.entries().some((e) => e.status === 'held-locked' && e.eventId === a.event.id)
+      ) {
+        void flushOutbox().catch(() => undefined);
+      }
+    },
+    [dispatchEvents, outbox, flushOutbox]
   );
 
   const dispatchCatalogs = useCallback(async (a: CatalogsAction): Promise<string | null> => {
@@ -348,7 +487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     eventsRef,
     onItem: dispatchCatalog,
     onCategory: dispatchCategories,
-    onEvent: dispatchEvents
+    onEvent: onRealtimeEvent
   });
 
   useEffect(() => {

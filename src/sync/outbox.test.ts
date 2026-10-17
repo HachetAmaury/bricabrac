@@ -117,6 +117,21 @@ describe('outbox', () => {
     expect(ob.rejected()).toEqual([]);
   });
 
+  it('rejectAll moves every queued entry to rejected with the reason, persisted', () => {
+    const ob = createOutbox('sync:outbox:u1', 'sync:rejected:u1');
+    ob.enqueue(ins('o1', sale('s1')));
+    ob.enqueue(del('o2', 's0'));
+    expect(ob.rejectAll('disabled')).toBe(2);
+    expect(ob.entries()).toEqual([]);
+    expect(ob.rejected().map((r) => [r.opId, r.reason, r.kind])).toEqual([
+      ['o1', 'disabled', 'insertSale'],
+      ['o2', 'disabled', 'deleteSale'],
+    ]);
+    expect(JSON.parse(localStorage.getItem('sync:rejected:u1')!)).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem('sync:outbox:u1')!)).toEqual([]);
+    expect(ob.rejectAll('disabled')).toBe(0);
+  });
+
   it('treats 23505 as success', async () => {
     const ob = createOutbox();
     ob.enqueue(ins('o1', sale('s1')));
