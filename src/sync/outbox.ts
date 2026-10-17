@@ -98,6 +98,11 @@ function classify(res: Response): Verdict {
   return 'other';
 }
 
+/** Storage key of `uid`'s outbox: per account, kept across sign-outs. */
+export const outboxStorageKey = (uid: string | null) => `sync:outbox:${uid}`;
+/** Storage key of `uid`'s rejected list: per account, kept across sign-outs. */
+export const rejectedStorageKey = (uid: string | null) => `sync:rejected:${uid}`;
+
 function load<T>(key: string): T[] {
   try {
     const raw = localStorage.getItem(key);
@@ -110,6 +115,11 @@ function load<T>(key: string): T[] {
   } catch {
     return [];
   }
+}
+
+/** Entries stored under `key`, without creating an outbox (read-only). */
+export function loadEntries(key: string): OutboxEntry[] {
+  return load<OutboxEntry>(key);
 }
 
 function loadRejected(key: string): RejectedSale[] {
@@ -160,6 +170,14 @@ const saleIdOf = (e: OutboxEntry) => (e.kind === 'insertSale' ? e.sale?.id : e.s
 
 function placeholderSale(saleId: string, at: number): Sale {
   return { id: saleId, timestamp: at, sellerId: '', lines: [], total: 0 };
+}
+
+/** The rejected-list form of a stored entry (any kind, verbatim copy kept). */
+export function toRejected(entry: OutboxEntry, reason: RejectReason, at: number): RejectedSale {
+  const raw = entry as unknown as { kind?: unknown; sale?: Sale; saleId?: string; eventId?: string; id: string };
+  const kind = raw.kind === 'insertSale' || raw.kind === 'deleteSale' ? raw.kind : 'unknown';
+  const sale = raw.sale ?? placeholderSale(raw.saleId ?? raw.id, at);
+  return { sale, eventId: String(raw.eventId), reason, kind, rejectedAt: at, opId: raw.id, entry };
 }
 
 export function createOutbox(storageKey = 'sync:outbox', rejectedKey = 'sync:rejected'): Outbox {
@@ -219,11 +237,7 @@ export function createOutbox(storageKey = 'sync:outbox', rejectedKey = 'sync:rej
     removedEntries.add(id);
   };
   const reject = (entry: OutboxEntry, reason: RejectReason) => {
-    const raw = entry as unknown as { kind?: unknown; sale?: Sale; saleId?: string; eventId?: string; id: string };
-    const kind = raw.kind === 'insertSale' || raw.kind === 'deleteSale' ? raw.kind : 'unknown';
-    const at = Date.now();
-    const sale = raw.sale ?? placeholderSale(raw.saleId ?? raw.id, at);
-    rejected = [...rejected, { sale, eventId: String(raw.eventId), reason, kind, rejectedAt: at, opId: raw.id, entry }];
+    rejected = [...rejected, toRejected(entry, reason, Date.now())];
     remove(entry.id);
   };
 

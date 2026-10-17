@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type FormEvent } from 'react';
 import { ChromeProvider } from '../components/ui/chrome';
 import { NavBar } from '../components/ui/NavBar';
 import { Button } from '../components/ui/Button';
+import { RejectedSalesDialog, exportRejectedSales } from '../components/RejectedSalesDialog';
 import { useAuth } from '../state/AuthContext';
 import { hasSupabaseConfig } from '../lib/supabase';
 
@@ -23,7 +24,7 @@ const inputStyle: CSSProperties = {
 };
 
 export function LoginView() {
-  const { signIn, lastError } = useAuth();
+  const { signIn, lastError, strandedSales, dismissStranded } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pending, setPending] = useState(false);
@@ -84,6 +85,12 @@ export function LoginView() {
           </p>
         )}
       </form>
+      {/* Sales a dead session left unsent: listed with an export before anything else. */}
+      <RejectedSalesDialog
+        sales={strandedSales}
+        onDismiss={dismissStranded}
+        onExport={() => exportRejectedSales(strandedSales)}
+      />
     </ChromeProvider>
   );
 }

@@ -1,14 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import type { RejectedSale } from '../sync/outbox';
 
 const h = vi.hoisted(() => ({
   signIn: vi.fn(),
-  lastError: null as string | null
+  lastError: null as string | null,
+  strandedSales: [] as RejectedSale[],
+  dismissStranded: vi.fn()
 }));
 
 vi.mock('../state/AuthContext', () => ({
-  useAuth: () => ({ signIn: h.signIn, lastError: h.lastError })
+  useAuth: () => ({
+    signIn: h.signIn,
+    lastError: h.lastError,
+    strandedSales: h.strandedSales,
+    dismissStranded: h.dismissStranded
+  })
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -52,6 +60,8 @@ async function click() {
 beforeEach(() => {
   h.signIn.mockReset();
   h.lastError = null;
+  h.strandedSales = [];
+  h.dismissStranded.mockReset();
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -86,5 +96,34 @@ describe('LoginView', () => {
     h.lastError = 'Compte désactivé.';
     render();
     expect(container.textContent).toContain('Compte désactivé.');
+  });
+
+  it('shows no stranded-sales dialog when nothing is stranded', () => {
+    render();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('lists the stranded sales over the form; OK dismisses them', () => {
+    const ts = new Date(2026, 9, 17, 14, 5).getTime();
+    h.strandedSales = [
+      {
+        sale: { id: 's1', sellerId: 'u1', timestamp: ts, lines: [], total: 750 },
+        eventId: 'e1',
+        reason: 'disabled',
+        opId: 'o1',
+        kind: 'insertSale',
+        rejectedAt: ts,
+        entry: {}
+      }
+    ];
+    render();
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.querySelector('h2')!.textContent).toBe('Ventes non synchronisées');
+    expect(dialog.querySelector('li')!.textContent).toBe('14:05 · 7,50 € · compte désactivé');
+    expect([...dialog.querySelectorAll('button')].map((b) => b.textContent)).toContain('Exporter en JSON');
+    const ok = [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'OK')!;
+    act(() => ok.click());
+    expect(h.dismissStranded).toHaveBeenCalledTimes(1);
+    expect(submitButton()).toBeDefined();
   });
 });

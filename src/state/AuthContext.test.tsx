@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   signOut: vi.fn(),
   session: null as unknown,
   refreshSession: vi.fn(),
+  emit: null as null | ((event: string, session: unknown) => void),
   profileReply: (): Promise<Reply> => Promise.resolve({ data: null, error: { message: 'Failed to fetch' } }),
 }));
 
@@ -17,7 +18,10 @@ vi.mock('../lib/supabase', () => ({
   supabase: {
     auth: {
       getSession: () => Promise.resolve({ data: { session: h.session } }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      onAuthStateChange: (cb: (event: string, session: unknown) => void) => {
+        h.emit = cb;
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      },
       signOut: h.signOut,
       refreshSession: h.refreshSession,
     },
@@ -62,6 +66,7 @@ beforeEach(() => {
   h.session = null;
   h.profileReply = () => Promise.resolve({ data: null, error: { message: 'Failed to fetch' } });
   h.refreshSession.mockReset();
+  h.emit = null;
   h.keysAtSignOut = null;
   h.signOut.mockReset().mockImplementation(async () => {
     h.keysAtSignOut = Object.keys(localStorage).sort();
@@ -226,5 +231,105 @@ describe('AuthProvider session', () => {
       expect(auth.status).toBe('signedIn');
       expect(auth.profile).toBeNull();
     });
+  });
+});
+
+const pendingSale = (id: string, total: number) => ({
+  id: `op-${id}`,
+  version: 1,
+  kind: 'insertSale',
+  eventId: 'e1',
+  sale: { id, sellerId: 'u1', timestamp: 1000, lines: [], total },
+  status: 'pending',
+  attempts: 0,
+});
+
+function seedAccountCache() {
+  localStorage.setItem('cache:events', '[]');
+  localStorage.setItem('cache:items', '[]');
+  localStorage.setItem('events:activeId', '"e1"');
+}
+
+const cacheKeys = () =>
+  Object.keys(localStorage).filter((k) => k.startsWith('cache:') || k === 'events:activeId' || k === LAST_USER_KEY);
+
+describe('AuthProvider SIGNED_OUT from auth-js', () => {
+  it('runs the full sign-out cleanup without signing out again', async () => {
+    h.session = { user: { id: 'u1' } };
+    h.profileReply = () => Promise.resolve({ data: profileRow, error: null });
+    await mount();
+    seedAccountCache();
+    expect(localStorage.getItem(LAST_USER_KEY)).not.toBeNull();
+    await act(async () => h.emit!('SIGNED_OUT', null));
+    expect(cacheKeys()).toEqual([]);
+    expect(auth.status).toBe('signedOut');
+    expect(h.signOut).not.toHaveBeenCalled();
+    expect(auth.lastError).toBe('Session expirée. Reconnectez-vous.');
+  });
+
+  it('keeps the pending sales of the dead session listed, and the outbox stored', async () => {
+    h.session = { user: { id: 'u1' } };
+    h.profileReply = () => Promise.resolve({ data: profileRow, error: null });
+    const outbox = JSON.stringify([pendingSale('s1', 750)]);
+    localStorage.setItem('sync:outbox:u1', outbox);
+    await mount();
+    await act(async () => h.emit!('SIGNED_OUT', null));
+    expect(auth.strandedSales.map((r) => [r.sale.id, r.reason])).toEqual([['s1', 'disabled']]);
+    expect(localStorage.getItem('sync:outbox:u1')).toBe(outbox);
+    act(() => auth.dismissStranded());
+    expect(auth.strandedSales).toEqual([]);
+  });
+
+  it('a sign-out the user asked for lists nothing', async () => {
+    h.session = { user: { id: 'u1' } };
+    h.profileReply = () => Promise.resolve({ data: profileRow, error: null });
+    localStorage.setItem('sync:outbox:u1', JSON.stringify([pendingSale('s1', 750)]));
+    h.signOut.mockImplementation(async () => {
+      h.emit!('SIGNED_OUT', null);
+      return { error: null };
+    });
+    await mount();
+    await act(() => auth.signOut());
+    expect(auth.status).toBe('signedOut');
+    expect(auth.strandedSales).toEqual([]);
+    expect(auth.lastError).toBeNull();
+  });
+});
+
+describe('AuthProvider last-user marker', () => {
+  it('a session for another user replaces the marker even when its profile fetch fails', async () => {
+    localStorage.setItem(LAST_USER_KEY, JSON.stringify(cachedUser));
+    h.session = { user: { id: 'u2' } };
+    h.profileReply = () => Promise.reject(new Error('Failed to fetch'));
+    await mount();
+    expect(auth.userId).toBe('u2');
+    const marker = localStorage.getItem(LAST_USER_KEY);
+    expect(marker === null ? null : JSON.parse(marker).userId).not.toBe('u1');
+  });
+});
+
+describe('AuthProvider revoked offline session', () => {
+  it('lists the pending sales of that account, keeps its outbox, clears the cache', async () => {
+    online = false;
+    localStorage.setItem(LAST_USER_KEY, JSON.stringify(cachedUser));
+    seedAccountCache();
+    const outbox = JSON.stringify([pendingSale('s1', 750), pendingSale('s2', 200)]);
+    localStorage.setItem('sync:outbox:u1', outbox);
+    await mount();
+    h.refreshSession.mockResolvedValue({
+      data: { session: null },
+      error: { name: 'AuthApiError', message: 'User is banned', status: 400, code: 'user_banned' },
+    });
+    online = true;
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(auth.status).toBe('signedOut');
+    expect(auth.strandedSales.map((r) => [r.sale.total, r.reason])).toEqual([
+      [750, 'disabled'],
+      [200, 'disabled'],
+    ]);
+    expect(localStorage.getItem('sync:outbox:u1')).toBe(outbox);
+    expect(cacheKeys()).toEqual([]);
   });
 });

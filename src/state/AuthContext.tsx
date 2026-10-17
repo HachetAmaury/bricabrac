@@ -1,8 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, hasSupabaseConfig } from '../lib/supabase';
 import type { Profile } from '../types';
 import { KEYS } from './persistence';
+import type { RejectedSale } from '../sync/outbox';
+import { readStrandedSales } from '../sync/strandedOutbox';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
@@ -18,6 +20,13 @@ type AuthValue = {
   signIn(email: string, password: string): Promise<string | null>;
   /** `reason` is shown on the login view afterwards. */
   signOut(reason?: string): Promise<void>;
+  /**
+   * Sales still queued for the account whose session died on its own (disabled,
+   * revoked, expired). Shown with an export on the login view; the queue itself
+   * stays stored for a later sign-in of that account.
+   */
+  strandedSales: RejectedSale[];
+  dismissStranded(): void;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -106,6 +115,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // User id whose profile lookup has settled (success, failure or timeout).
   const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [strandedSales, setStrandedSales] = useState<RejectedSale[]>([]);
+  // Last known signed-in user, read when auth-js ends the session by itself.
+  const userIdRef = useRef<string | null>(null);
+  // Set while signOut() runs: its own SIGNED_OUT lists nothing.
+  const signingOutRef = useRef(false);
+
+  /**
+   * A session that died without the user asking: keep its pending sales on
+   * screen, then the same cleanup as signOut (no new signOut call). The
+   * per-account outbox and rejected lists stay stored.
+   */
+  const endDeadSession = useCallback((uid: string | null) => {
+    const stranded = uid ? readStrandedSales(uid) : [];
+    if (stranded.length > 0) setStrandedSales(stranded);
+    userIdRef.current = null;
+    clearAccountCache();
+    clearLastUser();
+    setOfflineUser(null);
+  }, []);
 
   useEffect(() => {
     if (!configured) return;
@@ -131,14 +159,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(next);
       if (next) setOfflineUser(null);
       else if (event === 'INITIAL_SESSION') noSession();
-      else setOfflineUser(null);
+      else if (event === 'SIGNED_OUT') {
+        // auth-js signs out by itself when a refresh token is dead (refresh
+        // tick, foreground recovery, any getSession): clean up as signOut does.
+        if (signingOutRef.current) {
+          clearAccountCache();
+          clearLastUser();
+          setOfflineUser(null);
+        } else {
+          endDeadSession(userIdRef.current ?? loadLastUser()?.userId ?? null);
+          setLastError((prev) => prev ?? MSG_EXPIRED);
+        }
+      } else setOfflineUser(null);
       setSessionKnown(true);
     });
     return () => {
       active = false;
       data.subscription.unsubscribe();
     };
-  }, [configured]);
+  }, [configured, endDeadSession]);
 
   // Signed in offline: once the network is back, get a real session or end it.
   const offlineMode = offlineUser !== null && session === null;
@@ -160,9 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (isNetworkFailure(result.error)) return; // try again on the next 'online'
       // The session is dead: same cleanup as signOut, stored tokens included.
-      clearAccountCache();
-      clearLastUser();
-      setOfflineUser(null);
+      endDeadSession(offlineUser?.userId ?? null);
       const code = (result.error as { code?: unknown } | null)?.code;
       setLastError(code === 'user_banned' ? MSG_DISABLED : MSG_EXPIRED);
       try {
@@ -177,9 +214,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       window.removeEventListener('online', onOnline);
     };
-  }, [offlineMode]);
+    // offlineUser is set whenever offlineMode is true and only changes with it.
+  }, [offlineMode, endDeadSession]);
 
   const userId = session?.user.id ?? offlineUser?.userId ?? null;
+  const sessionUserId = session?.user.id ?? null;
+
+  useEffect(() => {
+    if (userId) userIdRef.current = userId;
+  }, [userId]);
+
+  // A session for another account: never leave the previous account's marker
+  // (or cached data) in place, even if this account's profile never loads.
+  useEffect(() => {
+    if (!sessionUserId) return;
+    const cached = loadLastUser();
+    if (cached?.userId === sessionUserId) return;
+    if (cached) clearAccountCache();
+    saveLastUser({ userId: sessionUserId, profile: null });
+  }, [sessionUserId]);
 
   useEffect(() => {
     if (!userId) {
@@ -236,9 +289,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAccountCache();
     clearLastUser();
     setOfflineUser(null);
+    userIdRef.current = null;
     if (reason) setLastError(reason);
-    await supabase.auth.signOut();
+    signingOutRef.current = true;
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      signingOutRef.current = false;
+    }
   }, []);
+
+  const dismissStranded = useCallback(() => setStrandedSales([]), []);
 
   const status: AuthStatus = !sessionKnown
     ? 'loading'
@@ -249,8 +310,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         : 'loading';
 
   const value = useMemo<AuthValue>(
-    () => ({ status, session, userId, profile, lastError, signIn, signOut }),
-    [status, session, userId, profile, lastError, signIn, signOut]
+    () => ({ status, session, userId, profile, lastError, signIn, signOut, strandedSales, dismissStranded }),
+    [status, session, userId, profile, lastError, signIn, signOut, strandedSales, dismissStranded]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

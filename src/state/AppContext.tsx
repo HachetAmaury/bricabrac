@@ -22,7 +22,7 @@ import { supabase } from '../lib/supabase';
 import { fetchAll } from '../sync/fetch';
 import { mirrorCatalog, mirrorCatalogs, mirrorCategories, mirrorEvents, type CatalogsAction } from '../sync/writes';
 import { nextScope, useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
-import { createOutbox, OutboxOfflineError, type OutboxEntry, type RejectedSale } from '../sync/outbox';
+import { createOutbox, OutboxOfflineError, outboxStorageKey, rejectedStorageKey, type OutboxEntry, type RejectedSale } from '../sync/outbox';
 import { notify } from '../lib/notify';
 
 export type SyncStatus = 'online' | 'offline' | 'syncing';
@@ -130,7 +130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing'); // only mounted signed in, fetch starts at once
   const [realtimeScope, setRealtimeScope] = useState<RealtimeScope | null>(null);
   // Per account: pending sales of one account are never sent under another's session.
-  const [outbox] = useState(() => createOutbox(`sync:outbox:${userId}`, `sync:rejected:${userId}`));
+  const [outbox] = useState(() => createOutbox(outboxStorageKey(userId), rejectedStorageKey(userId)));
   const [outboxVersion, bumpOutbox] = useReducer((n: number) => n + 1, 0);
   // The server said this account is disabled: pending sales become rejected, then sign out.
   const [disabled, setDisabled] = useState(false);
