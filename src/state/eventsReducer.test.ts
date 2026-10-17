@@ -231,6 +231,12 @@ describe('eventsReducer', () => {
       expect(removed[0].sales.map((s) => s.id)).toEqual(['s2']);
     });
 
+    it('removeSale with an unknown saleId returns the same state objects', () => {
+      const seeded = [ev({ sales: [sale('s1', 'alice', 1)] })];
+      const next = eventsReducer(seeded, { type: 'removeSale', eventId: 'e1', saleId: 'nope' });
+      expect(next[0]).toBe(seeded[0]);
+    });
+
     it('upsertEvent keeps existing sales', () => {
       const seeded = [ev({ name: 'Old', sales: [sale('s1', 'alice', 1)] })];
       const { sales: _sales, ...incoming } = ev({ name: 'Renamed' });

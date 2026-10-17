@@ -6,25 +6,9 @@ import { eventsReducer, type EventsAction } from './eventsReducer';
 import { cartReducer, type CartAction } from './cartReducer';
 import { loadJSON, saveJSON, KEYS } from './persistence';
 import { DEFAULT_CATALOG } from './defaultCatalog';
+import { LOCAL, withItemDefaults, withCategoryDefaults, withEventDefaults } from './normalize';
 
 const DEMO_EVENT_ID = 'demo-event';
-
-// Old localStorage payloads predate catalogs, sellers and lock timestamps.
-// Fill in defaults so nothing downstream sees undefined. Removed when the
-// storage layer is replaced by the Supabase sync.
-const LOCAL = 'local';
-const withItemDefaults = (i: Item): Item => ({ ...i, catalogId: i.catalogId ?? LOCAL });
-const withCategoryDefaults = (c: Category): Category => ({ ...c, catalogId: c.catalogId ?? LOCAL });
-const withEventDefaults = (e: SaleEvent): SaleEvent => {
-  const locked = e.locked ?? false;
-  return {
-    ...e,
-    catalogId: e.catalogId ?? LOCAL,
-    locked,
-    lockedAt: e.lockedAt ?? (locked ? e.createdAt : null),
-    sales: e.sales.map((s) => ({ ...s, sellerId: s.sellerId ?? LOCAL }))
-  };
-};
 
 type AppState = {
   catalog: Item[];

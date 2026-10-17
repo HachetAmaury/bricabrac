@@ -144,10 +144,10 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
         return { ...e, sales };
       });
     case 'removeSale':
-      return mapEvent(state, action.eventId, (e) => ({
-        ...e,
-        sales: e.sales.filter((s) => s.id !== action.saleId)
-      }));
+      return mapEvent(state, action.eventId, (e) => {
+        const sales = e.sales.filter((s) => s.id !== action.saleId);
+        return sales.length === e.sales.length ? e : { ...e, sales };
+      });
     case 'setEnabledItems':
       return mapEvent(state, action.eventId, (e) => ({ ...e, enabledItemIds: [...action.itemIds] }));
     case 'hydrate':

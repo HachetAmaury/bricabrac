@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
 import { parseBackup } from '../../lib/backup';
+import { withItemDefaults, withCategoryDefaults, withEventDefaults } from '../../state/normalize';
 import { ListSection, Row } from './ListSection';
 import { Button } from './Button';
 import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
@@ -42,9 +43,9 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
       'Importer cette sauvegarde remplacera toutes les données actuelles (articles, catégories et événements). Continuer ?'
     );
     if (!confirmed) return;
-    dispatchCatalog({ type: 'hydrate', items: result.data.catalog });
-    dispatchCategories({ type: 'hydrate', categories: result.data.categories });
-    dispatchEvents({ type: 'hydrate', events: result.data.events });
+    dispatchCatalog({ type: 'hydrate', items: result.data.catalog.map(withItemDefaults) });
+    dispatchCategories({ type: 'hydrate', categories: result.data.categories.map(withCategoryDefaults) });
+    dispatchEvents({ type: 'hydrate', events: result.data.events.map(withEventDefaults) });
     onClose();
   };
 
