@@ -118,6 +118,8 @@ export function applyChange(p: ChangePayload, scope: SyncScope, h: ChangeHandler
 }
 
 const EVENT_ITEMS_DEBOUNCE_MS = 50;
+/** Realtime rejects `in.()` filters with more values than this. */
+const IN_FILTER_MAX = 100;
 
 // realtime-js returns the existing channel for a topic it still holds, and a
 // removed channel only leaves that list once the server acks the leave. A
@@ -160,7 +162,12 @@ export function subscribeAll(
     },
   };
 
-  const inList = (ids: Set<string>) => `in.(${[...ids].join(',')})`;
+  const inList = (ids: Set<string>) => {
+    if (ids.size > IN_FILTER_MAX) {
+      console.warn(`[sync] ${ids.size} ids exceed the Realtime in() cap of ${IN_FILTER_MAX}; that listener may be rejected`);
+    }
+    return `in.(${[...ids].join(',')})`;
+  };
   const listeners: { table: string; filter: string }[] = [];
   if (scope.catalogIds.size > 0) {
     listeners.push({ table: 'items', filter: `catalog_id=${inList(scope.catalogIds)}` });

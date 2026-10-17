@@ -22,6 +22,7 @@ const h = vi.hoisted(() => {
     channels,
     fakeClient: {
       fake: true,
+      from: vi.fn(),
       channel: vi.fn((name: string) => {
         const ch: FakeChannel = {
           name,
@@ -118,6 +119,7 @@ beforeEach(() => {
   h.channels.length = 0;
   h.fakeClient.channel.mockClear();
   h.fakeClient.removeChannel.mockClear();
+  h.fakeClient.from.mockClear();
   h.fetchAll.mockReset();
   h.mirrorCatalog.mockReset().mockResolvedValue(undefined);
   h.mirrorCategories.mockReset().mockResolvedValue(undefined);
@@ -253,6 +255,8 @@ describe('AppProvider realtime', () => {
   });
 
   it('applies a Realtime sale INSERT to state without mirroring a write', async () => {
+    const real = await vi.importActual<typeof import('../sync/writes')>('../sync/writes');
+    h.mirrorEvents.mockImplementation(real.mirrorEvents);
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
     const sales = tableFilter(h.channels[0], 'sales')!;
@@ -268,50 +272,133 @@ describe('AppProvider realtime', () => {
       }),
     );
     expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's2']);
-    expect(h.mirrorEvents.mock.calls.every(([, a]) => a.type === 'upsertSale')).toBe(true);
+    expect(h.mirrorEvents).toHaveBeenCalledTimes(1);
+    expect(h.mirrorEvents.mock.calls[0][1].type).toBe('upsertSale');
+    await expect(h.mirrorEvents.mock.results[0].value).resolves.toBeUndefined();
+    expect(h.fakeClient.from).not.toHaveBeenCalled();
   });
 
-  it('refetches and resubscribes on window online and on foreground', async () => {
+  const snapshot2: Snapshot = {
+    ...snapshot,
+    events: [serverEvent, { ...serverEvent, id: 'e2', name: 'Finale', sales: [] }],
+  };
+
+  it('refetches on window online and on foreground, keeping the channel when the scope is unchanged', async () => {
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
     await act(async () => {
       window.dispatchEvent(new Event('online'));
     });
     expect(h.fetchAll).toHaveBeenCalledTimes(2);
-    expect(h.fakeClient.removeChannel).toHaveBeenCalledWith(h.channels[0]);
-    expect(h.channels).toHaveLength(2);
-
     await act(async () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     expect(h.fetchAll).toHaveBeenCalledTimes(3);
-    expect(h.channels).toHaveLength(3);
+    expect(h.fakeClient.channel).toHaveBeenCalledTimes(1);
+    expect(h.fakeClient.removeChannel).not.toHaveBeenCalled();
   });
 
-  it('refetches after a channel error, but not after the CLOSED of its own unsubscribe', async () => {
+  it('resubscribes when a refresh changes the scope, removing the old channel first', async () => {
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
-    vi.useFakeTimers();
-    try {
-      // Our own resubscribe closes channel 0: must not schedule a refresh.
+    h.fetchAll.mockResolvedValue(snapshot2);
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(h.fakeClient.removeChannel).toHaveBeenCalledWith(h.channels[0]);
+    expect(h.channels).toHaveLength(2);
+    expect(tableFilter(h.channels[1], 'sales')!.filter.filter).toBe('event_id=in.(e1,e2)');
+  });
+
+  it('coalesces concurrent refreshes into one rerun and ends on the last snapshot', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    h.fetchAll.mockClear();
+    const pending: ((s: Snapshot) => void)[] = [];
+    h.fetchAll.mockImplementation(() => new Promise<Snapshot>((r) => pending.push(r)));
+    let all!: Promise<unknown>;
+    act(() => {
+      all = Promise.all([app.refresh(), app.refresh(), app.refresh()]);
+    });
+    expect(h.fetchAll).toHaveBeenCalledTimes(1);
+    await act(async () => pending[0](snapshot));
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    await act(async () => pending[1](snapshot2));
+    await act(async () => {
+      await all;
+    });
+    expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    expect(app.events.map((e) => e.id)).toEqual(['e1', 'e2']);
+  });
+
+  describe('channel status', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const tick = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+
+    it('does not refresh on the CLOSED caused by its own unsubscribe', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      h.fetchAll.mockResolvedValue(snapshot2);
       await act(async () => {
         window.dispatchEvent(new Event('online'));
       });
+      expect(h.fakeClient.removeChannel).toHaveBeenCalledTimes(1);
+      await tick(60_000);
       expect(h.fetchAll).toHaveBeenCalledTimes(2);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
-      });
-      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    });
 
-      act(() => h.channels[1].status!('CHANNEL_ERROR'));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_000);
-      });
-      expect(h.fetchAll).toHaveBeenCalledTimes(3);
-      expect(h.channels).toHaveLength(3);
-    } finally {
-      vi.useRealTimers();
-    }
+    it('two CHANNEL_ERRORs in a row schedule exactly one refresh', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      act(() => h.channels[0].status!('CHANNEL_ERROR'));
+      await tick(500);
+      act(() => h.channels[0].status!('CHANNEL_ERROR'));
+      await tick(500);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      await tick(60_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    });
+
+    it('CHANNEL_ERROR then SUBSCRIBED refreshes once', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      act(() => h.channels[0].status!('CHANNEL_ERROR'));
+      await act(async () => h.channels[0].status!('SUBSCRIBED'));
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      await tick(60_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+    });
+
+    it('SUBSCRIBED with no prior down status does not refresh', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      await act(async () => h.channels[0].status!('SUBSCRIBED'));
+      await tick(60_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('a CLOSED from the server refreshes and opens a new channel', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      act(() => h.channels[0].status!('CLOSED'));
+      await tick(1_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      expect(h.channels).toHaveLength(2);
+    });
+
+    it('a server CLOSED after a CHANNEL_ERROR still reopens the channel', async () => {
+      h.fetchAll.mockResolvedValue(snapshot);
+      await mount();
+      act(() => h.channels[0].status!('CHANNEL_ERROR'));
+      act(() => h.channels[0].status!('CLOSED'));
+      await tick(1_000);
+      expect(h.fetchAll).toHaveBeenCalledTimes(2);
+      expect(h.channels).toHaveLength(2);
+    });
   });
 
   it('refetches when the user is added to an event', async () => {

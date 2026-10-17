@@ -21,7 +21,7 @@ import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { fetchAll } from '../sync/fetch';
 import { mirrorCatalog, mirrorCategories, mirrorEvents } from '../sync/writes';
-import { useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
+import { nextScope, useRealtimeSync, type RealtimeScope } from '../sync/useRealtimeSync';
 
 export type SyncStatus = 'online' | 'offline' | 'syncing';
 
@@ -121,7 +121,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshOnce = useCallback(async () => {
     setSyncStatus('syncing');
     try {
       const snap = await fetchAll(supabase);
@@ -134,14 +134,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'hydrate', events: snap.events });
       setCatalogs(snap.catalogs);
       setProfiles(snap.profiles);
-      // A fresh object resubscribes Realtime to what this snapshot covers.
-      setRealtimeScope({ eventIds: snap.events.map((e) => e.id), catalogIds: snap.catalogs.map((c) => c.id) });
+      // Resubscribes Realtime only when the snapshot covers other ids.
+      const scope = { eventIds: snap.events.map((e) => e.id), catalogIds: snap.catalogs.map((c) => c.id) };
+      setRealtimeScope((prev) => nextScope(prev, scope));
       setSyncStatus('online');
     } catch (err) {
       console.error('[sync] fetch failed, using cache', err);
       if (mounted.current) setSyncStatus('offline');
     }
   }, []);
+
+  // Wake fires visibilitychange + online together and memberships change per
+  // row: one fetch at a time, and calls during it fold into a single rerun so
+  // snapshots never land out of order.
+  const inFlight = useRef<Promise<void> | null>(null);
+  const rerun = useRef(false);
+  const refresh = useCallback(() => {
+    if (inFlight.current) {
+      rerun.current = true;
+      return inFlight.current;
+    }
+    const run = async () => {
+      do {
+        rerun.current = false;
+        await refreshOnce();
+      } while (rerun.current && mounted.current);
+    };
+    const p = run().finally(() => {
+      inFlight.current = null;
+    });
+    inFlight.current = p;
+    return p;
+  }, [refreshOnce]);
 
   useEffect(() => {
     if (userId) void refresh();
