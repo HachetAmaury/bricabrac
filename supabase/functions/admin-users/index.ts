@@ -133,6 +133,7 @@ Deno.serve(async (req) => {
         return fail(400, 'Action inconnue.');
     }
   } catch (e) {
-    return fail(500, e instanceof Error ? e.message : 'Erreur serveur.');
+    console.error('[admin-users]', e);
+    return fail(500, 'Erreur interne.');
   }
 });
