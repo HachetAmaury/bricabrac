@@ -14,7 +14,7 @@ import {
 import type { Item, SaleEvent, CartLine, Category, Catalog, Profile } from '../types';
 import { catalogReducer, type CatalogAction } from './catalogReducer';
 import { categoriesReducer, type CategoriesAction } from './categoriesReducer';
-import { eventsReducer, type EventsAction } from './eventsReducer';
+import { eventsReducer, latestSaleIndex, type EventsAction } from './eventsReducer';
 import { cartReducer, type CartAction } from './cartReducer';
 import { loadJSON, saveJSON, KEYS } from './persistence';
 import { useAuth } from './AuthContext';
@@ -83,10 +83,7 @@ function apply<S, A>(
 
 function lastSaleIdOf(events: SaleEvent[], eventId: string, sellerId: string): string | undefined {
   const sales = events.find((e) => e.id === eventId)?.sales ?? [];
-  for (let i = sales.length - 1; i >= 0; i--) {
-    if (sales[i].sellerId === sellerId) return sales[i].id;
-  }
-  return undefined;
+  return sales[latestSaleIndex(sales, sellerId)]?.id;
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {

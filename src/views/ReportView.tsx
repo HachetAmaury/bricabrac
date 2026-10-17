@@ -5,6 +5,7 @@ import { NavBar } from '../components/ui/NavBar';
 import { ListSection, Row } from '../components/ui/ListSection';
 import { LockIcon } from '../components/ui/icons';
 import { formatCents } from '../lib/money';
+import { latestSaleIndex } from '../state/eventsReducer';
 import type { Sale } from '../types';
 
 export function ReportView() {
@@ -28,6 +29,27 @@ export function ReportView() {
     return Array.from(map.values()).sort((a, b) => b.subtotal - a.subtotal);
   }, [activeEvent]);
 
+  const { sections, myLastSaleId } = useMemo(() => {
+    if (!activeEvent) return { sections: [], myLastSaleId: undefined };
+    const nameOf = (id: string) => profiles.find((p) => p.id === id)?.displayName ?? 'Vendeur inconnu';
+    const bySeller = new Map<string, Sale[]>();
+    for (const sale of activeEvent.sales) {
+      const list = bySeller.get(sale.sellerId) ?? [];
+      list.push(sale);
+      bySeller.set(sale.sellerId, list);
+    }
+    const sections = Array.from(bySeller, ([id, sales]) => ({
+      id,
+      name: nameOf(id),
+      total: sales.reduce((acc, s) => acc + s.total, 0),
+      sales: [...sales].sort((a, b) => b.timestamp - a.timestamp)
+    })).sort((a, b) =>
+      a.id === sellerId ? -1 : b.id === sellerId ? 1 : a.name.localeCompare(b.name, 'fr')
+    );
+    const mine = sellerId ? bySeller.get(sellerId) : undefined;
+    return { sections, myLastSaleId: mine?.[latestSaleIndex(mine, sellerId!)]?.id };
+  }, [activeEvent, profiles, sellerId]);
+
   if (!activeEvent) {
     return (
       <div>
@@ -39,23 +61,6 @@ export function ReportView() {
 
   const total = activeEvent.sales.reduce((acc, s) => acc + s.total, 0);
   const cashFloat = activeEvent.cashFloat ?? 0;
-  const nameOf = (id: string) => profiles.find((p) => p.id === id)?.displayName ?? 'Vendeur inconnu';
-  const bySeller = new Map<string, Sale[]>();
-  for (const sale of activeEvent.sales) {
-    const list = bySeller.get(sale.sellerId) ?? [];
-    list.push(sale);
-    bySeller.set(sale.sellerId, list);
-  }
-  const sections = Array.from(bySeller, ([id, sales]) => ({
-    id,
-    name: nameOf(id),
-    total: sales.reduce((acc, s) => acc + s.total, 0),
-    sales: [...sales].sort((a, b) => b.timestamp - a.timestamp)
-  })).sort((a, b) =>
-    a.id === sellerId ? -1 : b.id === sellerId ? 1 : a.name.localeCompare(b.name, 'fr')
-  );
-  const myLastSaleId = sections.find((s) => s.id === sellerId)?.sales[0].id;
-
   return (
     <div>
       <NavBar
@@ -129,7 +134,7 @@ export function ReportView() {
               const isExpanded = expanded[sale.id];
               const qty = sale.lines.reduce((a, l) => a + l.qty, 0);
               return (
-                <div key={sale.id}>
+                <div key={sale.id} data-testid={`sale-${sale.id}`}>
                   <Row
                     title={`${time} · ${formatCents(sale.total)}`}
                     subtitle={`${qty} article(s)`}

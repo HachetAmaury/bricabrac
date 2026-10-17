@@ -44,6 +44,15 @@ function isLocked(state: SaleEvent[], id: string): boolean {
   return state.find((e) => e.id === id)?.locked ?? false;
 }
 
+/** Index of the seller's sale with the greatest timestamp (ties: the later index), or -1. */
+export function latestSaleIndex(sales: Sale[], sellerId: string): number {
+  let best = -1;
+  sales.forEach((s, i) => {
+    if (s.sellerId === sellerId && (best < 0 || s.timestamp >= sales[best].timestamp)) best = i;
+  });
+  return best;
+}
+
 export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEvent[] {
   switch (action.type) {
     case 'create':
@@ -104,10 +113,7 @@ export function eventsReducer(state: SaleEvent[], action: EventsAction): SaleEve
       if (idx < 0) return state;
       if (state[idx].locked) return state; // can't remove sales from a locked event
       const sales = state[idx].sales;
-      let last = -1;
-      for (let i = sales.length - 1; i >= 0; i--) {
-        if (sales[i].sellerId === action.sellerId) { last = i; break; }
-      }
+      const last = latestSaleIndex(sales, action.sellerId);
       if (last < 0) return state;
       const next = state.slice();
       next[idx] = { ...next[idx], sales: sales.filter((_, i) => i !== last) };

@@ -134,6 +134,18 @@ describe('eventsReducer', () => {
     expect(next2[0].sales.map((s) => s.id)).toEqual(['s1', 's2']);
   });
 
+  it('undoMyLast removes the greatest timestamp, not the last array index', () => {
+    const seeded = [ev({ sales: [sale('A', 'alice', 3000), sale('B', 'alice', 1000)] })];
+    const next = eventsReducer(seeded, { type: 'undoMyLast', eventId: 'e1', sellerId: 'alice' });
+    expect(next[0].sales.map((s) => s.id)).toEqual(['B']);
+  });
+
+  it('undoMyLast breaks timestamp ties with the later array index', () => {
+    const seeded = [ev({ sales: [sale('A', 'alice', 5), sale('B', 'alice', 5)] })];
+    const next = eventsReducer(seeded, { type: 'undoMyLast', eventId: 'e1', sellerId: 'alice' });
+    expect(next[0].sales.map((s) => s.id)).toEqual(['A']);
+  });
+
   it('undoMyLast with no sale for that seller is a no-op', () => {
     const seeded = [ev({ sales: [sale('s1', 'alice', 1)] })];
     expect(eventsReducer(seeded, { type: 'undoMyLast', eventId: 'e1', sellerId: 'bob' })).toBe(seeded);

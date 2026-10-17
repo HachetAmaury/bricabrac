@@ -74,6 +74,7 @@ beforeEach(() => {
   h.profiles = [profile('me', 'Nat'), profile('zoe', 'Zoé'), profile('abel', 'Abel')];
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   act(() => root.unmount());
   container.remove();
 });
@@ -96,11 +97,10 @@ describe('ReportView per seller', () => {
     const buttons = annuler();
     expect(buttons).toHaveLength(1);
     // my latest sale (s3, total 1,00 €) is the row holding the button
-    expect(buttons[0].closest('div')?.parentElement?.textContent).toContain('1,00');
+    expect(buttons[0].closest('[data-testid]')?.getAttribute('data-testid')).toBe('sale-s3');
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     act(() => (buttons[0] as HTMLElement).click());
     expect(h.dispatchEvents).toHaveBeenCalledWith({ type: 'undoMyLast', eventId: 'e1', sellerId: 'me' });
-    vi.restoreAllMocks();
   });
 
   it('hides Annuler when the event is locked', () => {
