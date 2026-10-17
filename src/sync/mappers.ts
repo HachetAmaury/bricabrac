@@ -89,14 +89,13 @@ export function eventFromRows(e: EventRow, enabledItemIds: string[], sales: Sale
 }
 
 /** Includes `created_at` so inserts preserve the client's creation time. */
-export function eventToRow(e: SaleEvent): Omit<EventRow, 'updated_at'> {
+export function eventToRow(e: SaleEvent): Omit<EventRow, 'updated_at' | 'created_by'> {
   return {
     id: e.id,
     catalog_id: e.catalogId,
     name: e.name,
     kind: e.kind,
     created_at: new Date(e.createdAt).toISOString(),
-    created_by: null,
     locked_at: e.lockedAt === null ? null : new Date(e.lockedAt).toISOString(),
     cash_float: e.cashFloat ?? null,
     cash_count: (e.cashCount ?? null) as EventRow['cash_count'],

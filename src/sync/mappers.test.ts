@@ -80,7 +80,8 @@ describe('mappers', () => {
     expect(ev).toEqual(expected);
     const row = eventToRow(ev);
     expect(row.created_at).toBe(iso);
+    expect('created_by' in row).toBe(false);
     expect(row.locked_at).toBeNull();
-    expect(eventFromRows({ ...row, updated_at: iso }, [], [])).toEqual(ev);
+    expect(eventFromRows({ ...row, created_by: null, updated_at: iso }, [], [])).toEqual(ev);
   });
 });
