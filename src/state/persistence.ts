@@ -20,9 +20,18 @@ export function saveJSON<T>(key: string, value: T): void {
 }
 
 export const KEYS = {
+  catalogs: 'cache:catalogs',
+  items: 'cache:items',
+  categories: 'cache:categories',
+  events: 'cache:events',
+  profiles: 'cache:profiles',
+  activeEventId: 'events:activeId'
+} as const;
+
+/** Pre-Supabase localStorage keys, read once by the legacy import (Task 10). */
+export const LEGACY_KEYS = {
   catalog: 'catalog:items',
   categories: 'catalog:categories',
   events: 'events:list',
-  activeEventId: 'events:activeId',
   user: 'app:user'
 } as const;

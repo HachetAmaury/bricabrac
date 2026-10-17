@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
+import { useAuth } from '../../state/AuthContext';
 import { parseBackup } from '../../lib/backup';
 import { withItemDefaults, withCategoryDefaults, withEventDefaults } from '../../state/normalize';
 import { ListSection, Row } from './ListSection';
-import { Button } from './Button';
 import { CloseIcon, UserIcon, ExportIcon, ImportIcon, InfoIcon } from './icons';
 
 // Schema version stamped into exported backups (data format, not the build).
@@ -13,16 +13,15 @@ const BACKUP_VERSION = '0.2.0';
 const APP_VERSION = __APP_VERSION__;
 
 export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { user, setUser, catalog, categories, events, dispatchCatalog, dispatchCategories, dispatchEvents } = useApp();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(user);
+  const { allItems, allCategories, events, dispatchCatalog, dispatchCategories, dispatchEvents } = useApp();
+  const { profile } = useAuth();
   const [about, setAbout] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
   const exportData = () => {
-    const payload = { version: BACKUP_VERSION, exportedAt: new Date().toISOString(), catalog, categories, events };
+    const payload = { version: BACKUP_VERSION, exportedAt: new Date().toISOString(), catalog: allItems, categories: allCategories, events };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -104,39 +103,12 @@ export function Drawer({ open, onClose }: { open: boolean; onClose: () => void }
           </button>
         </header>
 
-        <ListSection header="Session" footer="Les sessions ouvertes sur cet appareil se synchronisent automatiquement.">
-          {editing ? (
-            <div style={{ padding: 12, display: 'flex', gap: 8 }}>
-              <input
-                autoFocus
-                autoComplete="off"
-                autoCorrect="off"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Nom d'utilisateur / appareil"
-                style={{ flex: 1, padding: 10 }}
-              />
-              <Button
-                variant="filled"
-                onClick={() => {
-                  setUser(draft.trim());
-                  setEditing(false);
-                }}
-              >
-                OK
-              </Button>
-            </div>
-          ) : (
-            <Row
-              leading={<UserIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
-              title={user || 'Aucun utilisateur'}
-              subtitle={user ? 'Connecté' : 'Appuyez pour vous connecter'}
-              onClick={() => {
-                setDraft(user);
-                setEditing(true);
-              }}
-            />
-          )}
+        <ListSection header="Session">
+          <Row
+            leading={<UserIcon size={22} style={{ color: 'var(--ios-blue)' }} />}
+            title={profile?.displayName ?? '…'}
+            subtitle="Connecté"
+          />
         </ListSection>
 
         <ListSection header="Données">

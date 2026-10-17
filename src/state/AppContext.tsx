@@ -1,27 +1,45 @@
-import { createContext, useContext, useEffect, useReducer, useMemo, useRef, type ReactNode } from 'react';
-import type { Item, SaleEvent, CartLine, Category } from '../types';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type Dispatch,
+  type MutableRefObject,
+  type ReactNode
+} from 'react';
+import type { Item, SaleEvent, CartLine, Category, Catalog, Profile } from '../types';
 import { catalogReducer, type CatalogAction } from './catalogReducer';
 import { categoriesReducer, type CategoriesAction } from './categoriesReducer';
 import { eventsReducer, type EventsAction } from './eventsReducer';
 import { cartReducer, type CartAction } from './cartReducer';
 import { loadJSON, saveJSON, KEYS } from './persistence';
-import { DEFAULT_CATALOG } from './defaultCatalog';
-import { LOCAL, withItemDefaults, withCategoryDefaults, withEventDefaults } from './normalize';
+import { useAuth } from './AuthContext';
+import { supabase } from '../lib/supabase';
+import { fetchAll } from '../sync/fetch';
+import { mirrorCatalog, mirrorCategories, mirrorEvents } from '../sync/writes';
 
-const DEMO_EVENT_ID = 'demo-event';
+export type SyncStatus = 'online' | 'offline' | 'syncing';
 
-type AppState = {
+type AppContextValue = {
+  /** Items of the active event's catalog (empty when no event is active). */
   catalog: Item[];
+  /** Categories of the active event's catalog (empty when no event is active). */
   categories: Category[];
+  /** Every item / category the user can see, across catalogs (backup export). */
+  allItems: Item[];
+  allCategories: Category[];
+  catalogs: Catalog[];
+  profiles: Profile[];
   events: SaleEvent[];
   activeEventId: string | null;
   cart: CartLine[];
-};
-
-type AppContextValue = AppState & {
   activeEvent: SaleEvent | null;
-  user: string;
-  setUser: (name: string) => void;
+  syncStatus: SyncStatus;
+  refresh: () => Promise<void>;
   setActiveEvent: (id: string | null) => void;
   dispatchCatalog: (a: CatalogAction) => void;
   dispatchCategories: (a: CategoriesAction) => void;
@@ -31,103 +49,132 @@ type AppContextValue = AppState & {
 
 const AppCtx = createContext<AppContextValue | null>(null);
 
+/**
+ * Runs the pure reducer on the ref (always the latest state, even between two
+ * dispatches in the same tick), dispatches, and returns prev/next so callers
+ * can mirror the exact state the reducer will commit.
+ */
+function apply<S, A>(
+  ref: MutableRefObject<S>,
+  reducer: (s: S, a: A) => S,
+  dispatch: Dispatch<A>,
+  action: A
+): { prev: S; next: S } {
+  const prev = ref.current;
+  const next = reducer(prev, action);
+  ref.current = next;
+  dispatch(action);
+  return { prev, next };
+}
+
+function lastSaleIdOf(events: SaleEvent[], eventId: string, sellerId: string): string | undefined {
+  const sales = events.find((e) => e.id === eventId)?.sales ?? [];
+  for (let i = sales.length - 1; i >= 0; i--) {
+    if (sales[i].sellerId === sellerId) return sales[i].id;
+  }
+  return undefined;
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [catalog, dispatchCatalog] = useReducer(
-    catalogReducer,
-    undefined,
-    () => {
-      const stored = localStorage.getItem(KEYS.catalog);
-      if (stored === null) return DEFAULT_CATALOG;
-      const existing = loadJSON<Item[]>(KEYS.catalog, []).map(withItemDefaults);
-      const existingIds = new Set(existing.map((i) => i.id));
-      const missing = DEFAULT_CATALOG.filter((i) => !existingIds.has(i.id));
-      return missing.length === 0 ? existing : [...existing, ...missing];
-    }
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
+  // Initial state comes from the last server snapshot so the app renders
+  // instantly (and offline); the mount effect below replaces it.
+  const [allItems, rawDispatchCatalog] = useReducer(catalogReducer, undefined, () =>
+    loadJSON<Item[]>(KEYS.items, [])
   );
-  const [categories, dispatchCategories] = useReducer(
-    categoriesReducer,
-    undefined,
-    () => loadJSON<Category[]>(KEYS.categories, []).map(withCategoryDefaults)
+  const [allCategories, rawDispatchCategories] = useReducer(categoriesReducer, undefined, () =>
+    loadJSON<Category[]>(KEYS.categories, [])
   );
-  const [events, dispatchEvents] = useReducer(
-    eventsReducer,
-    undefined,
-    () => {
-      const existing = loadJSON<SaleEvent[]>(KEYS.events, []).map(withEventDefaults);
-      if (existing.some((e) => e.id === DEMO_EVENT_ID)) return existing;
-      const demo: SaleEvent = {
-        id: DEMO_EVENT_ID,
-        name: 'Démo',
-        kind: 'autre',
-        createdAt: Date.now(),
-        catalogId: LOCAL,
-        enabledItemIds: DEFAULT_CATALOG.map((i) => i.id),
-        sales: [],
-        locked: false,
-        lockedAt: null
-      };
-      return [...existing, demo];
-    }
+  const [events, rawDispatchEvents] = useReducer(eventsReducer, undefined, () =>
+    loadJSON<SaleEvent[]>(KEYS.events, [])
   );
-  const [activeEventId, _setActiveEventId] = useReducer(
-    (_: string | null, next: string | null) => next,
-    undefined,
-    () => {
-      const stored = loadJSON<string | null>(KEYS.activeEventId, null);
-      return stored ?? DEMO_EVENT_ID;
-    }
-  );
-  const [user, _setUser] = useReducer(
-    (_: string, next: string) => next,
-    undefined,
-    () => loadJSON<string>(KEYS.user, '')
+  const [catalogs, setCatalogs] = useState<Catalog[]>(() => loadJSON<Catalog[]>(KEYS.catalogs, []));
+  const [profiles, setProfiles] = useState<Profile[]>(() => loadJSON<Profile[]>(KEYS.profiles, []));
+  const [activeEventId, setActiveEventId] = useState<string | null>(() =>
+    loadJSON<string | null>(KEYS.activeEventId, null)
   );
   const [cart, dispatchCart] = useReducer(cartReducer, []);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('offline');
 
-  // Guard so the storage-event listener doesn't immediately re-persist what it
-  // just hydrated (which would echo back to the originating session).
-  const hydrating = useRef(false);
+  const itemsRef = useRef(allItems);
+  const categoriesRef = useRef(allCategories);
+  const eventsRef = useRef(events);
 
-  useEffect(() => { if (!hydrating.current) saveJSON(KEYS.catalog, catalog); }, [catalog]);
-  useEffect(() => { if (!hydrating.current) saveJSON(KEYS.categories, categories); }, [categories]);
-  useEffect(() => { if (!hydrating.current) saveJSON(KEYS.events, events); }, [events]);
-  useEffect(() => { if (!hydrating.current) saveJSON(KEYS.activeEventId, activeEventId); }, [activeEventId]);
-  useEffect(() => { if (!hydrating.current) saveJSON(KEYS.user, user); }, [user]);
+  // Local cache: every committed change (server hydrate or local edit) is kept
+  // so the next launch starts from it.
+  useEffect(() => saveJSON(KEYS.items, allItems), [allItems]);
+  useEffect(() => saveJSON(KEYS.categories, allCategories), [allCategories]);
+  useEffect(() => saveJSON(KEYS.events, events), [events]);
+  useEffect(() => saveJSON(KEYS.catalogs, catalogs), [catalogs]);
+  useEffect(() => saveJSON(KEYS.profiles, profiles), [profiles]);
+  useEffect(() => saveJSON(KEYS.activeEventId, activeEventId), [activeEventId]);
 
-  // Live multi-session sync: when another session of the same browser writes to
-  // localStorage, mirror the change here so every open session behaves as one
-  // shared tablet. (Cross-device sync would need a backend; this covers tabs /
-  // windows / installed PWA instances on the same device.)
+  const mounted = useRef(true);
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.newValue === null) return;
-      hydrating.current = true;
-      try {
-        if (e.key === KEYS.catalog) {
-          dispatchCatalog({ type: 'hydrate', items: (JSON.parse(e.newValue) as Item[]).map(withItemDefaults) });
-        } else if (e.key === KEYS.categories) {
-          dispatchCategories({ type: 'hydrate', categories: (JSON.parse(e.newValue) as Category[]).map(withCategoryDefaults) });
-        } else if (e.key === KEYS.events) {
-          dispatchEvents({ type: 'hydrate', events: (JSON.parse(e.newValue) as SaleEvent[]).map(withEventDefaults) });
-        } else if (e.key === KEYS.activeEventId) {
-          _setActiveEventId(JSON.parse(e.newValue));
-        } else if (e.key === KEYS.user) {
-          _setUser(JSON.parse(e.newValue));
-        }
-      } catch {
-        // Ignore malformed payloads from another session.
-      } finally {
-        // Release the guard after this tick's persistence effects have run.
-        queueMicrotask(() => { hydrating.current = false; });
-      }
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setSyncStatus('syncing');
+    try {
+      const snap = await fetchAll(supabase);
+      if (!mounted.current) return;
+      apply(itemsRef, catalogReducer, rawDispatchCatalog, { type: 'hydrate', items: snap.items });
+      apply(categoriesRef, categoriesReducer, rawDispatchCategories, {
+        type: 'hydrate',
+        categories: snap.categories
+      });
+      apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'hydrate', events: snap.events });
+      setCatalogs(snap.catalogs);
+      setProfiles(snap.profiles);
+      setSyncStatus('online');
+    } catch (err) {
+      console.error('[sync] fetch failed, using cache', err);
+      if (mounted.current) setSyncStatus('offline');
+    }
   }, []);
 
   useEffect(() => {
+    if (userId) void refresh();
+  }, [userId, refresh]);
+
+  const onMirrorError = useCallback((err: unknown) => {
+    console.error('[sync] write failed', err);
+    if (mounted.current) setSyncStatus('offline');
+  }, []);
+
+  const dispatchCatalog = useCallback(
+    (a: CatalogAction) => {
+      const { prev, next } = apply(itemsRef, catalogReducer, rawDispatchCatalog, a);
+      if (prev !== next) mirrorCatalog(supabase, a, next).catch(onMirrorError);
+    },
+    [onMirrorError]
+  );
+  const dispatchCategories = useCallback(
+    (a: CategoriesAction) => {
+      const { prev, next } = apply(categoriesRef, categoriesReducer, rawDispatchCategories, a);
+      if (prev !== next) mirrorCategories(supabase, a, next).catch(onMirrorError);
+    },
+    [onMirrorError]
+  );
+  const dispatchEvents = useCallback(
+    (a: EventsAction) => {
+      const removedSaleId =
+        a.type === 'undoMyLast' ? lastSaleIdOf(eventsRef.current, a.eventId, a.sellerId) : undefined;
+      const { prev, next } = apply(eventsRef, eventsReducer, rawDispatchEvents, a);
+      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId).catch(onMirrorError);
+    },
+    [onMirrorError]
+  );
+
+  useEffect(() => {
     if (activeEventId && !events.some((e) => e.id === activeEventId)) {
-      _setActiveEventId(null);
+      setActiveEventId(null);
     }
   }, [events, activeEventId]);
 
@@ -136,29 +183,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [activeEventId]);
 
   useEffect(() => {
-    const archived = new Set(catalog.filter((i) => i.archived).map((i) => i.id));
+    const archived = new Set(allItems.filter((i) => i.archived).map((i) => i.id));
     cart.forEach((line) => {
       if (archived.has(line.itemId)) {
         dispatchCart({ type: 'dropItem', itemId: line.itemId });
       }
     });
-  }, [catalog, cart]);
+  }, [allItems, cart]);
 
   const activeEvent = useMemo(
     () => events.find((e) => e.id === activeEventId) ?? null,
     [events, activeEventId]
   );
+  const activeCatalogId = activeEvent?.catalogId ?? null;
+  const catalog = useMemo(
+    () => (activeCatalogId ? allItems.filter((i) => i.catalogId === activeCatalogId) : []),
+    [allItems, activeCatalogId]
+  );
+  const categories = useMemo(
+    () => (activeCatalogId ? allCategories.filter((c) => c.catalogId === activeCatalogId) : []),
+    [allCategories, activeCatalogId]
+  );
 
   const value: AppContextValue = {
     catalog,
     categories,
+    allItems,
+    allCategories,
+    catalogs,
+    profiles,
     events,
     activeEventId,
     cart,
     activeEvent,
-    user,
-    setUser: _setUser,
-    setActiveEvent: _setActiveEventId,
+    syncStatus,
+    refresh,
+    setActiveEvent: setActiveEventId,
     dispatchCatalog,
     dispatchCategories,
     dispatchEvents,
