@@ -18,8 +18,9 @@ function json(status: number, body: Record<string, unknown>): Response {
 const fail = (status: number, error: string) => json(status, { ok: false, error });
 
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
-const isOptionalBool = (v: unknown) => v === undefined || typeof v === 'boolean';
-const isOptionalString = (v: unknown) => v === undefined || typeof v === 'string';
+const isOptionalBool = (v: unknown): v is boolean | undefined => v === undefined || typeof v === 'boolean';
+const isOptionalString = (v: unknown): v is string | undefined => v === undefined || typeof v === 'string';
+const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const SELF = 'Impossible de modifier votre propre compte.';
 const SHORT_PASSWORD = 'Mot de passe trop court (8 caractères minimum).';
@@ -88,14 +89,14 @@ Deno.serve(async (req) => {
           return fail(400, INVALID);
         }
         if (displayName !== undefined && !isNonEmptyString(displayName)) return fail(400, 'Nom requis.');
-        if (password !== undefined && (password as string).length < 8) return fail(400, SHORT_PASSWORD);
-        if (isAdmin === false && userId === callerId) return fail(400, SELF);
+        if (password !== undefined && password.length < 8) return fail(400, SHORT_PASSWORD);
+        if (isAdmin === false && sameId(userId, callerId)) return fail(400, SELF);
 
         const attrs: Record<string, unknown> = {};
         const profilePatch: Record<string, unknown> = {};
         if (password !== undefined) attrs.password = password;
         if (displayName !== undefined) {
-          const name = (displayName as string).trim();
+          const name = displayName.trim();
           attrs.user_metadata = { display_name: name };
           profilePatch.display_name = name;
         }
@@ -118,7 +119,7 @@ Deno.serve(async (req) => {
       case 'setDisabled': {
         const { userId, disabled } = body;
         if (!isNonEmptyString(userId) || typeof disabled !== 'boolean') return fail(400, INVALID);
-        if (userId === callerId) return fail(400, SELF);
+        if (sameId(userId, callerId)) return fail(400, SELF);
 
         const { error } = await admin.auth.admin.updateUserById(userId, {
           ban_duration: disabled ? '876600h' : 'none',

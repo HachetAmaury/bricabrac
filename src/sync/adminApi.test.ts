@@ -48,6 +48,23 @@ describe('adminUsers', () => {
     });
   });
 
+  it('maps an unparseable error body to the connection message', async () => {
+    invoke.mockResolvedValue({
+      data: null,
+      error: {
+        context: {
+          json: async () => {
+            throw new SyntaxError('bad');
+          },
+        },
+      },
+    });
+    await expect(adminUsers(createBody)).resolves.toEqual({
+      ok: false,
+      error: 'Connexion impossible. Vérifiez le réseau.',
+    });
+  });
+
   it('maps an error without a readable body to the connection message', async () => {
     invoke.mockResolvedValue({ data: null, error: { message: 'Failed to send a request', context: {} } });
     await expect(adminUsers(createBody)).resolves.toEqual({
