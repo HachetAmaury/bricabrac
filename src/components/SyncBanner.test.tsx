@@ -50,6 +50,16 @@ describe('SyncBanner', () => {
     expect(show('online', { pending: 1, held: 0, flushing: true })).toBe('Synchronisation…');
   });
 
+  it('re-renders when the browser goes offline', () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
+    expect(show('online', { pending: 2, held: 0, flushing: false })).toBe('');
+    onLine.mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+    });
+    expect(container.textContent).toBe('Hors ligne · 2 vente(s) en attente');
+  });
+
   it('reports sales held by a locked event', () => {
     expect(show('online', { pending: 0, held: 3, flushing: false })).toBe(
       '3 vente(s) bloquée(s) : événement verrouillé',
@@ -64,6 +74,7 @@ describe('RejectedSalesDialog', () => {
       sale: { id: 's1', sellerId: 'u1', timestamp: ts, lines: [], total: 750 },
       eventId: 'e1',
       reason: 'event-deleted',
+      opId: 'o1',
       kind: 'insertSale',
       rejectedAt: ts,
       entry: {},
@@ -72,6 +83,7 @@ describe('RejectedSalesDialog', () => {
       sale: { id: 's2', sellerId: 'u1', timestamp: ts, lines: [], total: 200 },
       eventId: 'e1',
       reason: 'server-error',
+      opId: 'o2',
       kind: 'insertSale',
       rejectedAt: ts,
       entry: {},

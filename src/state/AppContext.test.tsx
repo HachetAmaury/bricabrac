@@ -23,6 +23,7 @@ const h = vi.hoisted(() => {
     fakeClient: {
       fake: true,
       from: vi.fn(),
+      auth: { refreshSession: vi.fn(() => Promise.resolve({ data: {}, error: null })) },
       channel: vi.fn((name: string) => {
         const ch: FakeChannel = {
           name,
@@ -240,15 +241,39 @@ describe('AppProvider outbox', () => {
       ]),
     );
   const inserts: unknown[] = [];
+  const profileQueries: unknown[] = [];
+  let profileDisabled = false;
   const serverReplies = (result: unknown) =>
-    h.fakeClient.from.mockImplementation(() => ({
-      insert: (row: unknown) => {
-        inserts.push(row);
-        return Promise.resolve(result);
-      },
-    }));
+    h.fakeClient.from.mockImplementation((table: string) =>
+      table === 'profiles'
+        ? {
+            select: () => ({
+              eq: (_c: string, id: unknown) => ({
+                maybeSingle: () => {
+                  profileQueries.push(id);
+                  return Promise.resolve({ data: { disabled: profileDisabled }, error: null, status: 200, statusText: 'OK' });
+                },
+              }),
+            }),
+          }
+        : {
+            insert: (row: unknown) => {
+              inserts.push(row);
+              return Promise.resolve(result);
+            },
+          },
+    );
   beforeEach(() => {
     inserts.length = 0;
+    profileQueries.length = 0;
+    profileDisabled = false;
+    h.fakeClient.auth.refreshSession.mockClear();
+  });
+  const pgErr = (code: string, message: string, status: number) => ({
+    data: null,
+    error: { code, message, details: null, hint: null },
+    status,
+    statusText: '',
   });
 
   it('passes the outbox to mirrorEvents', async () => {
@@ -262,7 +287,7 @@ describe('AppProvider outbox', () => {
 
   it('pending outbox sale survives a refresh() hydrate', async () => {
     seed();
-    serverReplies({ error: { message: 'TypeError: Failed to fetch', code: '' } });
+    serverReplies({ data: null, error: { message: 'TypeError: Failed to fetch', details: '', hint: '', code: '' }, status: 0, statusText: '' });
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
     expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's9']);
@@ -283,7 +308,7 @@ describe('AppProvider outbox', () => {
 
   it('sends a pending sale once back online and clears the counter', async () => {
     seed();
-    serverReplies({ error: null });
+    serverReplies({ data: null, error: null, status: 201, statusText: 'Created' });
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
     expect(inserts).toHaveLength(1);
@@ -293,14 +318,37 @@ describe('AppProvider outbox', () => {
 
   it('rolls back a rejected sale and lists it until dismissed', async () => {
     seed();
-    serverReplies({ error: { status: 403, message: 'Forbidden' } });
+    profileDisabled = true;
+    serverReplies(pgErr('42501', 'new row violates row-level security policy for table "sales"', 403));
     h.fetchAll.mockResolvedValue(snapshot);
     await mount();
     expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1']);
     expect(app.rejected).toEqual([expect.objectContaining({ sale: pendingSale, eventId: 'e1', reason: 'disabled' })]);
     expect(app.outbox.pending).toBe(0);
+    expect(profileQueries).toEqual(['u1']);
     act(() => app.dismissRejected());
     expect(app.rejected).toEqual([]);
+  });
+
+  it('keeps the sale and refreshes the session on an expired JWT', async () => {
+    seed();
+    serverReplies(pgErr('PGRST303', 'JWT expired', 401));
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    expect(h.fakeClient.auth.refreshSession).toHaveBeenCalledTimes(1);
+    expect(app.events[0].sales.map((s) => s.id)).toEqual(['s1', 's9']);
+    expect(app.outbox.pending).toBe(1);
+    expect(app.rejected).toEqual([]);
+  });
+
+  it('passes the snapshot time and session helpers to mirrorEvents', async () => {
+    h.fetchAll.mockResolvedValue(snapshot);
+    await mount();
+    await act(async () => app.dispatchEvents({ type: 'rename', id: 'e1', name: 'Finale' }));
+    const extras = h.mirrorEvents.mock.calls[0][5];
+    expect(extras.snapshotAt).toBeGreaterThan(0);
+    expect(typeof extras.isDisabled).toBe('function');
+    expect(typeof extras.refreshSession).toBe('function');
   });
 });
 

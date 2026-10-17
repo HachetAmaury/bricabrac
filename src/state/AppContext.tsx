@@ -132,10 +132,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Time of the last successful hydrate: RLS refusals count once per snapshot.
+  const snapshotAt = useRef(0);
+  // Rest of the outbox flush context. Disabled is reported only when the
+  // server positively says so; any failure reads as "not disabled".
+  const flushExtras = useCallback(
+    () => ({
+      snapshotAt: snapshotAt.current,
+      isDisabled: async () => {
+        if (!userId) return false;
+        try {
+          const { data, error } = await supabase.from('profiles').select('disabled').eq('id', userId).maybeSingle();
+          return !error && data?.disabled === true;
+        } catch {
+          return false;
+        }
+      },
+      refreshSession: () => supabase.auth.refreshSession().then(() => undefined, () => undefined)
+    }),
+    [userId]
+  );
   const flushOutbox = useCallback(async () => {
     if (!navigator.onLine) return;
-    await outbox.flush(supabase, { eventsById: new Map(eventsRef.current.map((e) => [e.id, e])) });
-  }, [outbox]);
+    await outbox.flush(supabase, {
+      ...flushExtras(),
+      eventsById: new Map(eventsRef.current.map((e) => [e.id, e]))
+    });
+  }, [outbox, flushExtras]);
 
   // A server snapshot does not contain what is still queued: replay the queue
   // on top of it (in order) so a hydrate never hides an unsent sale or undo.
@@ -179,6 +202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       apply(eventsRef, eventsReducer, rawDispatchEvents, { type: 'hydrate', events: snap.events });
       // Same tick as the hydrate, so the cache is never saved without them.
       reapplyOutbox(earlier);
+      snapshotAt.current = Date.now();
       setCatalogs(snap.catalogs);
       setProfiles(snap.profiles);
       // Resubscribes Realtime only when the snapshot covers other ids.
@@ -282,9 +306,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const removedSaleId =
         a.type === 'undoMyLast' ? lastSaleIdOf(eventsRef.current, a.eventId, a.sellerId) : undefined;
       const { prev, next } = apply(eventsRef, eventsReducer, rawDispatchEvents, a);
-      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId, outbox).then(onMirrorOk, onMirrorError);
+      if (prev !== next) mirrorEvents(supabase, a, next, removedSaleId, outbox, flushExtras()).then(onMirrorOk, onMirrorError);
     },
-    [onMirrorOk, onMirrorError, outbox]
+    [onMirrorOk, onMirrorError, outbox, flushExtras]
   );
 
   // Server-origin actions go through the wrapped dispatchers: they are no-ops in the mirror.

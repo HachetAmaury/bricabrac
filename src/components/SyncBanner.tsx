@@ -1,10 +1,22 @@
+import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext';
 
 /** One line about sales still waiting in the outbox; nothing when all are sent. */
 export function SyncBanner() {
   const { syncStatus, outbox } = useApp();
+  // navigator.onLine is not reactive: re-render when the browser flips it.
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
   const waiting = outbox.pending + outbox.held;
-  const offline = syncStatus === 'offline' || !navigator.onLine;
+  const offline = syncStatus === 'offline' || !online;
 
   let text: string | null = null;
   let warn = true;

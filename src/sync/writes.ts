@@ -5,7 +5,7 @@ import type { CatalogAction } from '../state/catalogReducer';
 import type { CategoriesAction } from '../state/categoriesReducer';
 import type { EventsAction } from '../state/eventsReducer';
 import { categoryToRow, eventToRow, itemToRow, saleToRow } from './mappers';
-import { OutboxOfflineError, type Outbox } from './outbox';
+import { OutboxOfflineError, type FlushContext, type Outbox } from './outbox';
 import { uuid } from '../lib/uuid';
 
 type Client = SupabaseClient<Database>;
@@ -67,9 +67,14 @@ function updateEvent(client: Client, id: string, patch: Partial<EventRow>): Prom
  * when the server could not be reached (the ops stay queued); held or
  * rejected ops resolve, since the server answered.
  */
-async function flushOutbox(client: Client, outbox: Outbox, state: SaleEvent[]): Promise<void> {
+async function flushOutbox(
+  client: Client,
+  outbox: Outbox,
+  state: SaleEvent[],
+  ctx: Omit<FlushContext, 'eventsById'>,
+): Promise<void> {
   if (!navigator.onLine) throw new OutboxOfflineError();
-  const res = await outbox.flush(client, { eventsById: new Map(state.map((e) => [e.id, e])) });
+  const res = await outbox.flush(client, { ...ctx, eventsById: new Map(state.map((e) => [e.id, e])) });
   if (res.stoppedOnNetworkError) throw new OutboxOfflineError();
 }
 
@@ -77,7 +82,8 @@ async function flushOutbox(client: Client, outbox: Outbox, state: SaleEvent[]): 
  * `removedSaleId` is required for `undoMyLast`: the removed sale is gone from
  * `state`, so the caller computes it from the previous state. With an
  * `outbox`, sale writes are queued there (and survive being offline) instead
- * of being sent directly.
+ * of being sent directly; `flushCtx` completes the flush context (the events
+ * come from `state`).
  */
 export async function mirrorEvents(
   client: Client,
@@ -85,6 +91,7 @@ export async function mirrorEvents(
   state: SaleEvent[],
   removedSaleId?: string,
   outbox?: Outbox,
+  flushCtx: Omit<FlushContext, 'eventsById'> = {},
 ): Promise<void> {
   switch (a.type) {
     case 'create': {
@@ -119,7 +126,7 @@ export async function mirrorEvents(
       if (!sale) return;
       if (outbox) {
         outbox.enqueue({ id: uuid(), version: 1, kind: 'insertSale', eventId: a.eventId, sale });
-        return flushOutbox(client, outbox, state);
+        return flushOutbox(client, outbox, state, flushCtx);
       }
       return run(client.from('sales').insert(saleToRow(sale, a.eventId)));
     }
@@ -127,7 +134,7 @@ export async function mirrorEvents(
       if (!removedSaleId) return;
       if (outbox) {
         outbox.enqueue({ id: uuid(), version: 1, kind: 'deleteSale', eventId: a.eventId, saleId: removedSaleId });
-        return flushOutbox(client, outbox, state);
+        return flushOutbox(client, outbox, state, flushCtx);
       }
       return run(client.from('sales').delete().eq('id', removedSaleId));
     case 'upsertEvent':

@@ -38,9 +38,9 @@ export function RejectedSalesDialog() {
   return (
     <Modal open={rejected.length > 0} onClose={() => {}} title="Ventes non synchronisées">
       <ul style={{ listStyle: 'none', margin: '0 0 16px', padding: 0 }}>
-        {rejected.map((r, i) => (
+        {rejected.map((r) => (
           <li
-            key={`${r.sale.id}-${i}`}
+            key={r.opId}
             style={{ padding: '8px 0', borderBottom: '0.5px solid var(--separator-opaque)', fontSize: 16 }}
           >
             {r.kind === 'deleteSale'

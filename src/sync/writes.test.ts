@@ -12,7 +12,7 @@ function fakeClient(error: unknown = null) {
   const calls: Call[] = [];
   const from = vi.fn((table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const method of ['upsert', 'update', 'delete', 'insert', 'eq']) {
+    for (const method of ['upsert', 'update', 'delete', 'insert', 'eq', 'select']) {
       chain[method] = (...args: unknown[]) => {
         calls.push({ table, method, args });
         return chain;
@@ -276,7 +276,23 @@ describe('mirrorEvents', () => {
       expect(calls).toEqual([
         { table: 'sales', method: 'delete', args: [] },
         { table: 'sales', method: 'eq', args: ['id', 's1'] },
+        { table: 'sales', method: 'select', args: ['id'] },
       ]);
+    });
+
+    it('passes the extra flush context through to the outbox', async () => {
+      const outbox = createOutbox();
+      const flush = vi.spyOn(outbox, 'flush');
+      const isDisabled = () => Promise.resolve(false);
+      const refreshSession = () => Promise.resolve();
+      const { client } = fakeClient();
+      await mirrorEvents(client, record, [event], undefined, outbox, { snapshotAt: 42, isDisabled, refreshSession });
+      expect(flush).toHaveBeenCalledWith(client, {
+        eventsById: new Map([['e1', event]]),
+        snapshotAt: 42,
+        isDisabled,
+        refreshSession,
+      });
     });
 
     it('offline: keeps the sale queued, does not call the client, and rejects with OutboxOfflineError', async () => {
