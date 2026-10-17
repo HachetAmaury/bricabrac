@@ -164,7 +164,7 @@ function AdminCatalogs() {
                 leftIcon={<TrashIcon size={16} />}
                 style={{ color: 'var(--ios-red)' }}
                 onClick={() => {
-                  if (confirm(`Supprimer "${c.name}" ?`)) void run({ type: 'delete', id: c.id });
+                  if (confirm(`Supprimer "${c.name}" et tous ses articles et catégories ?`)) void run({ type: 'delete', id: c.id });
                 }}
               >
                 Supprimer

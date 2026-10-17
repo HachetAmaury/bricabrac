@@ -5,9 +5,10 @@ import { NavBar } from '../components/ui/NavBar';
 import { ListSection, Row } from '../components/ui/ListSection';
 import { LockIcon } from '../components/ui/icons';
 import { formatCents } from '../lib/money';
+import type { Sale } from '../types';
 
 export function ReportView() {
-  const { activeEvent, dispatchEvents } = useApp();
+  const { activeEvent, profiles, dispatchEvents } = useApp();
   // The session user id is the seller id (profile may be unknown offline).
   const sellerId = useAuth().session?.user.id ?? null;
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -38,8 +39,22 @@ export function ReportView() {
 
   const total = activeEvent.sales.reduce((acc, s) => acc + s.total, 0);
   const cashFloat = activeEvent.cashFloat ?? 0;
-  const sortedSales = [...activeEvent.sales].sort((a, b) => b.timestamp - a.timestamp);
-  const lastSaleId = sortedSales[0]?.id;
+  const nameOf = (id: string) => profiles.find((p) => p.id === id)?.displayName ?? 'Vendeur inconnu';
+  const bySeller = new Map<string, Sale[]>();
+  for (const sale of activeEvent.sales) {
+    const list = bySeller.get(sale.sellerId) ?? [];
+    list.push(sale);
+    bySeller.set(sale.sellerId, list);
+  }
+  const sections = Array.from(bySeller, ([id, sales]) => ({
+    id,
+    name: nameOf(id),
+    total: sales.reduce((acc, s) => acc + s.total, 0),
+    sales: [...sales].sort((a, b) => b.timestamp - a.timestamp)
+  })).sort((a, b) =>
+    a.id === sellerId ? -1 : b.id === sellerId ? 1 : a.name.localeCompare(b.name, 'fr')
+  );
+  const myLastSaleId = sections.find((s) => s.id === sellerId)?.sales[0].id;
 
   return (
     <div>
@@ -99,62 +114,66 @@ export function ReportView() {
           )}
         </ListSection>
 
-        <ListSection header="Transactions">
-          {sortedSales.length === 0 && (
+        {sections.length === 0 && (
+          <ListSection header="Transactions">
             <Row title={<span style={{ color: 'var(--label-secondary)' }}>Aucune transaction.</span>} />
-          )}
-          {sortedSales.map((sale) => {
-            const time = new Date(sale.timestamp).toLocaleTimeString('fr-FR', {
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-            const isExpanded = expanded[sale.id];
-            const qty = sale.lines.reduce((a, l) => a + l.qty, 0);
-            return (
-              <div key={sale.id}>
-                <Row
-                  title={`${time} · ${formatCents(sale.total)}`}
-                  subtitle={`${qty} article(s)`}
-                  onClick={() => setExpanded((m) => ({ ...m, [sale.id]: !m[sale.id] }))}
-                  accessory={
-                    sale.id === lastSaleId && !activeEvent.locked ? (
-                      <span
-                        role="button"
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          if (sellerId && confirm('Annuler la dernière vente ?')) {
-                            dispatchEvents({ type: 'undoMyLast', eventId: activeEvent.id, sellerId });
-                          }
-                        }}
-                        style={{ color: 'var(--ios-red)', fontWeight: 500 }}
-                      >
-                        Annuler
-                      </span>
-                    ) : (
-                      <span style={{ width: 8 }} />
-                    )
-                  }
-                />
-                {isExpanded && (
-                  <div style={{ padding: '0 16px 12px', fontSize: 15 }}>
-                    {sale.lines.map((l) => (
-                      <div key={l.itemId} style={{ display: 'flex', gap: 12, padding: '3px 0' }}>
-                        <span style={{ flex: 1 }}>{l.name}</span>
-                        <span style={{ color: 'var(--label-secondary)' }}>× {l.qty}</span>
-                        <span>{formatCents(l.price * l.qty)}</span>
-                      </div>
-                    ))}
-                    {sale.cashGiven !== undefined && (
-                      <div style={{ color: 'var(--label-secondary)', marginTop: 4 }}>
-                        Reçu : {formatCents(sale.cashGiven)} · Rendu : {formatCents(sale.change ?? 0)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </ListSection>
+          </ListSection>
+        )}
+        {sections.map((section) => (
+          <ListSection key={section.id} header={`${section.name} · ${section.sales.length} vente(s) · ${formatCents(section.total)}`}>
+            {section.sales.map((sale) => {
+              const time = new Date(sale.timestamp).toLocaleTimeString('fr-FR', {
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+              const isExpanded = expanded[sale.id];
+              const qty = sale.lines.reduce((a, l) => a + l.qty, 0);
+              return (
+                <div key={sale.id}>
+                  <Row
+                    title={`${time} · ${formatCents(sale.total)}`}
+                    subtitle={`${qty} article(s)`}
+                    onClick={() => setExpanded((m) => ({ ...m, [sale.id]: !m[sale.id] }))}
+                    accessory={
+                      sale.id === myLastSaleId && !activeEvent.locked ? (
+                        <span
+                          role="button"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            if (sellerId && confirm('Annuler la dernière vente ?')) {
+                              dispatchEvents({ type: 'undoMyLast', eventId: activeEvent.id, sellerId });
+                            }
+                          }}
+                          style={{ color: 'var(--ios-red)', fontWeight: 500 }}
+                        >
+                          Annuler
+                        </span>
+                      ) : (
+                        <span style={{ width: 8 }} />
+                      )
+                    }
+                  />
+                  {isExpanded && (
+                    <div style={{ padding: '0 16px 12px', fontSize: 15 }}>
+                      {sale.lines.map((l) => (
+                        <div key={l.itemId} style={{ display: 'flex', gap: 12, padding: '3px 0' }}>
+                          <span style={{ flex: 1 }}>{l.name}</span>
+                          <span style={{ color: 'var(--label-secondary)' }}>× {l.qty}</span>
+                          <span>{formatCents(l.price * l.qty)}</span>
+                        </div>
+                      ))}
+                      {sale.cashGiven !== undefined && (
+                        <div style={{ color: 'var(--label-secondary)', marginTop: 4 }}>
+                          Reçu : {formatCents(sale.cashGiven)} · Rendu : {formatCents(sale.change ?? 0)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </ListSection>
+        ))}
       </div>
     </div>
   );

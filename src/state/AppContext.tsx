@@ -326,6 +326,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : 'Modification impossible. Vérifiez le réseau.';
     }
     if (!mounted.current) return null;
+    // Adding or deleting changes items/categories and the realtime scope.
+    if (a.type === 'add' || a.type === 'delete') void refresh().catch(() => undefined);
     setCatalogs((cs) => {
       switch (a.type) {
         case 'add':
@@ -337,7 +339,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     });
     return null;
-  }, []);
+  }, [refresh]);
 
   // Server-origin actions go through the wrapped dispatchers: they are no-ops in the mirror.
   useRealtimeSync({

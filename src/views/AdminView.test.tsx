@@ -76,6 +76,7 @@ beforeEach(() => {
   h.adminUsers.mockReset();
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   act(() => root.unmount());
   container.remove();
 });
@@ -160,10 +161,9 @@ describe('AdminView', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render();
     await act(async () => button('Supprimer').click());
-    expect(window.confirm).toHaveBeenCalledWith('Supprimer "Buvette" ?');
+    expect(window.confirm).toHaveBeenCalledWith('Supprimer "Buvette" et tous ses articles et catégories ?');
     expect(h.dispatchCatalogs).toHaveBeenCalledWith({ type: 'delete', id: 'c1' });
     expect(container.textContent).toContain('Catalogue utilisé par un événement.');
-    vi.restoreAllMocks();
   });
 
   it('refuses non-admins', () => {
